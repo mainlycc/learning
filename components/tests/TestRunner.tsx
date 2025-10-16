@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -15,6 +15,7 @@ type Test = {
   time_limit_minutes: number | null
   randomize_questions: boolean
   questions_count: number
+  max_attempts: number | null
 }
 
 type Question = {
@@ -49,7 +50,7 @@ export default function TestRunner({
 }) {
   const supabase = createClient()
   const [index, setIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, any>>({})
+  const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ score: number; passed: boolean; reason?: string } | null>(null)
   const startTimeRef = useRef<number>(Date.now())
@@ -83,7 +84,7 @@ export default function TestRunner({
 
   const progress = Math.round(((index + 1) / Math.max(1, questionsOrdered.length)) * 100)
 
-  const selectAnswer = (questionId: string, value: any) => {
+  const selectAnswer = (questionId: string, value: string | string[]) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }))
   }
 
@@ -110,7 +111,7 @@ export default function TestRunner({
     return percent
   }, [answers, optionsByQuestion, questionsOrdered])
 
-  const submit = async () => {
+  const submit = useCallback(async () => {
     setSubmitting(true)
     try {
       if (maxAttemptsReached) {
@@ -134,29 +135,21 @@ export default function TestRunner({
         })
       if (error) throw error
       setResult({ score: percent, passed })
-    } catch (e) {
+    } catch {
       // noop – można dodać toast
     } finally {
       setSubmitting(false)
     }
-  }
-
-  const q = questionsOrdered[index]
-  const qOptions = optionsByQuestion[q?.id] || []
-
-  if (!q) {
-    return <Card><CardContent className="p-6">Brak pytań w teście.</CardContent></Card>
-  }
+  }, [answers, computeScore, maxAttemptsReached, supabase, test.id, test.pass_threshold, userId])
 
   // Timer limitu czasu
-  useMemo(() => {
+  useEffect(() => {
     if (remainingSeconds === null) return
     const id = setInterval(() => {
       setRemainingSeconds((sec) => {
         if (sec === null) return sec
         if (sec <= 1) {
           clearInterval(id)
-          // Auto-zakończenie testu po upływie czasu
           if (!result && !submitting) {
             submit()
           }
@@ -166,7 +159,14 @@ export default function TestRunner({
       })
     }, 1000)
     return () => clearInterval(id)
-  }, [remainingSeconds])
+  }, [remainingSeconds, result, submitting, submit])
+
+  const q = questionsOrdered[index]
+  const qOptions = optionsByQuestion[q?.id] || []
+
+  if (!q) {
+    return <Card><CardContent className="p-6">Brak pytań w teście.</CardContent></Card>
+  }
 
   if (result) {
     return (

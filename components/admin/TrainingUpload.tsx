@@ -70,8 +70,9 @@ export default function TrainingUpload() {
         .order('title', { ascending: true })
       setTrainings(data || [])
       setFile(null)
-    } catch (e: any) {
-      setMessage(e?.message || 'Błąd podczas uploadu')
+    } catch (e) {
+      const err = e as { message?: string }
+      setMessage(err?.message || 'Błąd podczas uploadu')
     } finally {
       setIsUploading(false)
     }

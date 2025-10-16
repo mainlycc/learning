@@ -15,7 +15,7 @@ export default async function DashboardLayout({
   }
   
   // Pobierz profil użytkownika
-  const { data: profile, error: profileError } = await supabase
+  const { error: profileError } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)

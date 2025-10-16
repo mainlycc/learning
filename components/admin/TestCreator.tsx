@@ -68,7 +68,7 @@ export default function TestCreator() {
         .single()
       if (error) throw error
       setCreatedTest(data!)
-    } catch (e) {
+    } catch {
       // noop
     } finally {
       setCreating(false)
@@ -76,7 +76,7 @@ export default function TestCreator() {
   }
 
   const handleAddOption = () => setOptions(prev => [...prev, { text: '', correct: false }])
-  const handleChangeOption = (idx: number, prop: 'text' | 'correct', value: any) => {
+  const handleChangeOption = (idx: number, prop: 'text' | 'correct', value: string | boolean) => {
     setOptions(prev => prev.map((o, i) => i === idx ? { ...o, [prop]: value } : o))
   }
 
@@ -117,7 +117,7 @@ export default function TestCreator() {
       setQuestionType('single')
       setPoints(1)
       setOptions([{ text: '', correct: false }, { text: '', correct: false }])
-    } catch (e) {
+    } catch {
       // noop
     } finally {
       setAddingQuestion(false)
@@ -194,7 +194,7 @@ export default function TestCreator() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Typ</Label>
-              <Select value={questionType} onValueChange={(v: any) => setQuestionType(v)}>
+              <Select value={questionType} onValueChange={(v: 'single' | 'multiple' | 'true_false' | 'open') => setQuestionType(v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

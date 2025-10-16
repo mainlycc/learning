@@ -8,11 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import TrainingUpload from '@/components/admin/TrainingUpload'
 import TestCreator from '@/components/admin/TestCreator'
 
-async function createTraining(formData: FormData) {
+async function createTraining(formData: FormData): Promise<void> {
   'use server'
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { ok: false, error: 'Brak sesji' }
+  if (!user) return
 
   const title = String(formData.get('title') || '').trim()
   const description = String(formData.get('description') || '').trim() || null
@@ -20,9 +20,7 @@ async function createTraining(formData: FormData) {
   const fileType = String(formData.get('file_type') || 'PDF') as 'PDF' | 'PPTX'
   const isActive = String(formData.get('is_active') || 'true') === 'true'
 
-  if (!title || !durationMinutes) {
-    return { ok: false, error: 'Wypełnij wymagane pola' }
-  }
+  if (!title || !durationMinutes) return
 
   const { error } = await supabase
     .from('trainings')
@@ -37,8 +35,7 @@ async function createTraining(formData: FormData) {
       is_active: isActive,
     })
 
-  if (error) return { ok: false, error: error.message }
-  return { ok: true }
+  if (error) return
 }
 
 export default async function TrainingsManagePage() {

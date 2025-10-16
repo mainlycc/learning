@@ -1,10 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import dynamic from 'next/dynamic'
-
-const TestRunner = dynamic(() => import('@/components/tests/TestRunner'), { ssr: false })
+import TestRunnerClient from '@/components/tests/TestRunnerClient'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -77,7 +74,7 @@ export default async function TrainingTestPage({ params }: PageProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TestRunner
+          <TestRunnerClient
             userId={user.id}
             test={test}
             questions={questions || []}
