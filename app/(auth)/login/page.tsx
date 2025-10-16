@@ -83,3 +83,6 @@ export default function LoginPage() {
     </Card>
   )
 }
+
+// Wymusza renderowanie dynamiczne, aby uniknąć prerenderingu podczas builda
+export const dynamic = 'force-dynamic'
