@@ -14,7 +14,10 @@ import {
   Clock, 
   ArrowLeft,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Shield,
+  Eye,
+  Lock
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -42,13 +45,21 @@ interface UserProgress {
   status: 'in_progress' | 'completed' | 'paused'
 }
 
+interface AccessPolicy {
+  id: string
+  training_id: string
+  policy_type: 'full' | 'preview' | 'time_limited'
+  time_limit_days: number | null
+}
+
 interface TrainingViewerProps {
   training: Training
   slides: TrainingSlide[]
   userProgress?: UserProgress
+  accessPolicy?: AccessPolicy
 }
 
-export function TrainingViewer({ training, slides, userProgress }: TrainingViewerProps) {
+export function TrainingViewer({ training, slides, userProgress, accessPolicy }: TrainingViewerProps) {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0)
   const [timeOnSlide, setTimeOnSlide] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
@@ -396,6 +407,34 @@ export function TrainingViewer({ training, slides, userProgress }: TrainingViewe
                   <span>Slajdy:</span>
                   <span>{training.slides_count}</span>
                 </div>
+                {accessPolicy && (
+                  <div className="pt-2 border-t">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Shield className="h-3 w-3" />
+                      <span className="font-medium">Polityka dostępu:</span>
+                    </div>
+                    <div className="space-y-1">
+                      {accessPolicy.policy_type === 'preview' && (
+                        <Badge variant="secondary" className="text-xs">
+                          <Eye className="h-3 w-3 mr-1" />
+                          Tylko podgląd (pierwsze {slides.length} slajdów)
+                        </Badge>
+                      )}
+                      {accessPolicy.policy_type === 'time_limited' && (
+                        <Badge variant="secondary" className="text-xs">
+                          <Clock className="h-3 w-3 mr-1" />
+                          Dostęp czasowy ({accessPolicy.time_limit_days} dni)
+                        </Badge>
+                      )}
+                      {accessPolicy.policy_type === 'full' && (
+                        <Badge variant="outline" className="text-xs">
+                          <Lock className="h-3 w-3 mr-1" />
+                          Pełny dostęp
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

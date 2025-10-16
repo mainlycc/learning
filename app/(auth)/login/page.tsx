@@ -31,7 +31,7 @@ export default function LoginPage() {
       } else {
         window.location.href = '/dashboard'
       }
-    } catch (error) {
+    } catch {
       setMessage('Wystąpił błąd podczas logowania')
     } finally {
       setIsLoading(false)

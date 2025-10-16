@@ -42,7 +42,7 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
     .single()
 
   // Pobierz slajdy szkolenia
-  const { data: slides } = await supabase
+  await supabase
     .from('training_slides')
     .select('*')
     .eq('training_id', id)

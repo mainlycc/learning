@@ -5,25 +5,23 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useTheme } from 'next-themes'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { 
   BookOpen, 
   Users, 
   BarChart3, 
   Settings, 
-  FileText,
+  FileText, 
   LogOut,
   User,
   Shield,
-  Search,
   Moon,
   Sun,
-  Bell,
-  Command
+  Plane
 } from 'lucide-react'
+import { NotificationCenter } from './NotificationCenter'
 import {
   Sidebar,
   SidebarContent,
@@ -138,11 +136,11 @@ export function AppSidebar({ user }: SidebarProps) {
             <SidebarMenuButton size="lg" asChild>
               <Link href="/dashboard">
                 <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Command className="size-4" />
+                  <Plane className="size-4" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">E-learning</span>
-                  <span className="truncate text-xs">Platforma</span>
+                  <span className="truncate font-medium">AIRSET</span>
+                  <span className="truncate text-xs">Ochrona Lotnictwa Cywilnego</span>
                 </div>
               </Link>
             </SidebarMenuButton>
@@ -201,25 +199,10 @@ export function AppSidebar({ user }: SidebarProps) {
               </Button>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton className="w-full justify-start">
-                    <Bell className="size-4" />
-                    <span>Powiadomienia</span>
-                    <Badge 
-                      variant="destructive" 
-                      className="ml-auto h-5 w-5 rounded-full p-0 text-xs"
-                    >
-                      3
-                    </Badge>
-                  </SidebarMenuButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuItem>Nowe szkolenie dostępne</DropdownMenuItem>
-                  <DropdownMenuItem>Przypomnienie o szkoleniu</DropdownMenuItem>
-                  <DropdownMenuItem>System aktualizacji</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <div className="w-full flex items-center justify-between px-2 py-1.5">
+                <span className="text-sm font-medium">Powiadomienia</span>
+                <NotificationCenter />
+              </div>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarGroup>

@@ -1,8 +1,92 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { BarChart3, Download, Calendar, Users } from 'lucide-react'
+import { createClient } from '@/lib/supabase/server'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { BarChart3, Calendar, Users } from 'lucide-react'
+import { MonthlyReportGenerator } from '@/components/reports/MonthlyReportGenerator'
+import { ReportTimeline } from '@/components/reports/ReportTimeline'
+import { DataExporter } from '@/components/reports/DataExporter'
 
-export default function ReportsPage() {
+interface UserProgress {
+  id: string
+  user_id: string
+  training_id: string
+  current_slide: number
+  total_time_seconds: number
+  completed_at: string | null
+  status: string
+  profiles: {
+    full_name: string | null
+    email: string
+  }
+  trainings: {
+    title: string
+  }
+}
+
+interface TestAttempt {
+  id: string
+  user_id: string
+  test_id: string
+  started_at: string
+  completed_at: string | null
+  score: number
+  passed: boolean
+  profiles: {
+    full_name: string | null
+    email: string
+  }
+  tests: {
+    title: string
+  }
+}
+
+async function getUserProgressData() {
+  const supabase = await createClient()
+  
+  const { data, error } = await supabase
+    .from('user_training_progress')
+    .select(`
+      *,
+      profiles:user_id (full_name, email),
+      trainings:training_id (title)
+    `)
+    .order('created_at', { ascending: false })
+    .limit(100)
+
+  if (error) {
+    console.error('Błąd pobierania postępów:', error)
+    return []
+  }
+
+  return data as UserProgress[]
+}
+
+async function getTestAttemptsData() {
+  const supabase = await createClient()
+  
+  const { data, error } = await supabase
+    .from('user_test_attempts')
+    .select(`
+      *,
+      profiles:user_id (full_name, email),
+      tests:test_id (title)
+    `)
+    .order('started_at', { ascending: false })
+    .limit(100)
+
+  if (error) {
+    console.error('Błąd pobierania prób testów:', error)
+    return []
+  }
+
+  return data as TestAttempt[]
+}
+
+export default async function ReportsPage() {
+  const [userProgress, testAttempts] = await Promise.all([
+    getUserProgressData(),
+    getTestAttemptsData()
+  ])
+
   return (
     <div className="space-y-6">
       <div>
@@ -14,78 +98,71 @@ export default function ReportsPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      {/* Krótki przegląd */}
+      <div className="grid gap-6 md:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Calendar className="mr-2 h-5 w-5" />
-              Raport miesięczny
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Ukończone szkolenia
             </CardTitle>
-            <CardDescription>
-              Generuj raport za wybrany miesiąc
-            </CardDescription>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <Button className="w-full">
-              <Download className="mr-2 h-4 w-4" />
-              Generuj raport
-            </Button>
+            <div className="text-2xl font-bold">
+              {userProgress.filter(p => p.status === 'completed').length}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              z {userProgress.length} rozpoczętych
+            </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Users className="mr-2 h-5 w-5" />
-              Raport użytkowników
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Zaliczone testy
             </CardTitle>
-            <CardDescription>
-              Szczegółowe statystyki użytkowników
-            </CardDescription>
+            <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <Button variant="outline" className="w-full">
-              <BarChart3 className="mr-2 h-4 w-4" />
-              Wyświetl raport
-            </Button>
+            <div className="text-2xl font-bold">
+              {testAttempts.filter(t => t.passed).length}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              z {testAttempts.length} prób
+            </p>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <BarChart3 className="mr-2 h-5 w-5" />
-              Eksport danych
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Aktywni użytkownicy
             </CardTitle>
-            <CardDescription>
-              Eksport do CSV, XLSX lub PDF
-            </CardDescription>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <Button variant="outline" className="w-full">
-              <Download className="mr-2 h-4 w-4" />
-              Eksportuj dane
-            </Button>
+            <div className="text-2xl font-bold">
+              {new Set([...userProgress, ...testAttempts].map(item => item.profiles.email)).size}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              w systemie
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Ostatnie raporty</CardTitle>
-          <CardDescription>
-            Lista wygenerowanych raportów
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8">
-            <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground">
-              Brak wygenerowanych raportów
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Komponenty raportów */}
+      <div className="space-y-6">
+        <MonthlyReportGenerator />
+        
+        <ReportTimeline />
+        
+        <DataExporter 
+          userProgress={userProgress}
+          testAttempts={testAttempts}
+        />
+      </div>
     </div>
   )
 }

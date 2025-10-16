@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Platforma E-learningowa",
-  description: "Nowoczesna platforma do zarządzania szkoleniami online",
+  title: "AIRSET - Ochrona Lotnictwa Cywilnego",
+  description: "Platforma szkoleniowa dla ochrony lotnictwa cywilnego",
 };
 
 export default async function RootLayout({

@@ -49,7 +49,7 @@ export default async function DashboardLayout({
   }
 
   // Pobierz profil ponownie (nowy lub istniejący)
-  const { data: finalProfile } = await supabase
+  await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Input } from '@/components/ui/input'
 import { createClient } from '@/lib/supabase/client'
 
 type QuestionType = 'single' | 'multiple' | 'true_false' | 'open' | 'matching' | 'drag_drop' | 'fill_gaps' | 'sorting'
@@ -50,7 +51,7 @@ export default function TestRunner({
 }) {
   const supabase = createClient()
   const [index, setIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string | string[]>>({})
+  const [answers, setAnswers] = useState<Record<string, string | string[] | Record<string, string>>>({})
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ score: number; passed: boolean; reason?: string } | null>(null)
   const startTimeRef = useRef<number>(Date.now())
@@ -84,7 +85,7 @@ export default function TestRunner({
 
   const progress = Math.round(((index + 1) / Math.max(1, questionsOrdered.length)) * 100)
 
-  const selectAnswer = (questionId: string, value: string | string[]) => {
+  const selectAnswer = (questionId: string, value: string | string[] | Record<string, string>) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }))
   }
 
@@ -101,10 +102,42 @@ export default function TestRunner({
         if (userAnswer && userAnswer === correct) score += q.points
       } else if (q.question_type === 'multiple') {
         const correctIds = new Set(opts.filter(o => o.is_correct).map(o => o.id))
-        const answerIds = new Set<string>(userAnswer || [])
+        const answerIds = new Set<string>(Array.isArray(userAnswer) ? userAnswer : [])
         if (correctIds.size === answerIds.size && [...correctIds].every(id => answerIds.has(id))) {
           score += q.points
         }
+      } else if (q.question_type === 'fill_gaps') {
+        // Dla fill_gaps sprawdzamy czy wszystkie odpowiedzi są poprawne
+        const correctAnswers = opts.filter(o => o.is_correct)
+        const userAnswers = (userAnswer as unknown as Record<string, string>) || {}
+        let allCorrect = true
+        for (const correct of correctAnswers) {
+          const gapId = correct.order_number.toString()
+          if (!userAnswers[gapId] || userAnswers[gapId].toLowerCase().trim() !== correct.option_text.toLowerCase().trim()) {
+            allCorrect = false
+            break
+          }
+        }
+        if (allCorrect) score += q.points
+      } else if (q.question_type === 'matching') {
+        // Dla matching sprawdzamy czy wszystkie pary są poprawne
+        const correctPairs = new Map<string, string>()
+        const leftItems = opts.filter(o => !o.is_correct).sort((a, b) => a.order_number - b.order_number)
+        const rightItems = opts.filter(o => o.is_correct).sort((a, b) => a.order_number - b.order_number)
+        
+        for (let i = 0; i < leftItems.length && i < rightItems.length; i++) {
+          correctPairs.set(leftItems[i].id, rightItems[i].id)
+        }
+        
+        const userAnswers = (userAnswer as unknown as Record<string, string>) || {}
+        let allCorrect = true
+        for (const [leftId, correctRightId] of correctPairs) {
+          if (userAnswers[leftId] !== correctRightId) {
+            allCorrect = false
+            break
+          }
+        }
+        if (allCorrect) score += q.points
       }
     }
     const percent = max > 0 ? Math.round((score / max) * 100) : 0
@@ -217,7 +250,8 @@ export default function TestRunner({
               ))
             ) : q.question_type === 'multiple' ? (
               qOptions.map((opt) => {
-                const set = new Set<string>(answers[q.id] || [])
+                const answerValue = answers[q.id]
+                const set = new Set<string>(Array.isArray(answerValue) ? answerValue : [])
                 const checked = set.has(opt.id)
                 return (
                   <label key={opt.id} className="flex items-center gap-2">
@@ -233,12 +267,25 @@ export default function TestRunner({
                   </label>
                 )
               })
+            ) : q.question_type === 'fill_gaps' ? (
+              <FillGapsQuestion
+                questionText={q.question_text}
+                options={qOptions}
+                value={(answers[q.id] as unknown as Record<string, string>) || {}}
+                onChange={(value) => selectAnswer(q.id, value)}
+              />
+            ) : q.question_type === 'matching' ? (
+              <MatchingQuestion
+                options={qOptions}
+                value={(answers[q.id] as unknown as Record<string, string>) || {}}
+                onChange={(value) => selectAnswer(q.id, value)}
+              />
             ) : (
               <textarea
                 className="w-full rounded border p-2 text-sm"
                 rows={5}
                 placeholder="Odpowiedź otwarta..."
-                value={answers[q.id] || ''}
+                value={typeof answers[q.id] === 'string' ? answers[q.id] as string : ''}
                 onChange={(e) => selectAnswer(q.id, e.target.value)}
               />
             )}
@@ -264,6 +311,143 @@ export default function TestRunner({
           </div>
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+// Komponent dla pytań typu Fill Gaps
+function FillGapsQuestion({ 
+  questionText, 
+  value, 
+  onChange 
+}: { 
+  questionText: string
+  options: Option[]
+  value: Record<string, string>
+  onChange: (value: Record<string, string>) => void
+}) {
+  const gaps = useMemo(() => {
+    const gapRegex = /\{\{gap(\d+)\}\}/g
+    const matches = [...questionText.matchAll(gapRegex)]
+    return matches.map(match => parseInt(match[1]))
+  }, [questionText])
+
+  const handleGapChange = (gapId: string, answer: string) => {
+    onChange({ ...value, [gapId]: answer })
+  }
+
+  const renderQuestionWithGaps = () => {
+    let text = questionText
+    gaps.forEach(gapNum => {
+      text = text.replace(`{{gap${gapNum}}}`, `GAP_${gapNum}_PLACEHOLDER`)
+    })
+
+    const parts = text.split(/(GAP_\d+_PLACEHOLDER)/)
+    return parts.map((part, index) => {
+      if (part.startsWith('GAP_') && part.endsWith('_PLACEHOLDER')) {
+        const gapNum = part.match(/GAP_(\d+)_PLACEHOLDER/)![1]
+        const gapId = gapNum.toString()
+        return (
+          <Input
+            key={index}
+            className="inline-block w-24 mx-1"
+            placeholder={`Luka ${gapNum}`}
+            value={value[gapId] || ''}
+            onChange={(e) => handleGapChange(gapId, e.target.value)}
+          />
+        )
+      }
+      return <span key={index}>{part}</span>
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-base">
+        {renderQuestionWithGaps()}
+      </div>
+      <div className="text-sm text-muted-foreground">
+        Wypełnij wszystkie luki w tekście powyżej.
+      </div>
+    </div>
+  )
+}
+
+// Komponent dla pytań typu Matching
+function MatchingQuestion({ 
+  options, 
+  value, 
+  onChange 
+}: { 
+  options: Option[]
+  value: Record<string, string>
+  onChange: (value: Record<string, string>) => void
+}) {
+  const leftItems = useMemo(() => 
+    options.filter(o => !o.is_correct).sort((a, b) => a.order_number - b.order_number),
+    [options]
+  )
+  
+  const rightItems = useMemo(() => 
+    options.filter(o => o.is_correct).sort((a, b) => a.order_number - b.order_number),
+    [options]
+  )
+
+  const handleMatchChange = (leftId: string, rightId: string) => {
+    onChange({ ...value, [leftId]: rightId })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-sm text-muted-foreground mb-4">
+        Dopasuj elementy z lewej kolumny do elementów z prawej kolumny.
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Lewa kolumna */}
+        <div className="space-y-3">
+          <h4 className="font-medium">Elementy do dopasowania:</h4>
+          {leftItems.map((item, index) => (
+            <div key={item.id} className="flex items-center gap-2 p-2 border rounded">
+              <span className="font-medium">{index + 1}.</span>
+              <span>{item.option_text}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Prawa kolumna */}
+        <div className="space-y-3">
+          <h4 className="font-medium">Wybierz dopasowanie:</h4>
+          {leftItems.map((leftItem, index) => (
+            <div key={leftItem.id} className="flex items-center gap-2">
+              <span className="font-medium w-8">{index + 1}.</span>
+              <select
+                className="flex-1 p-2 border rounded"
+                value={value[leftItem.id] || ''}
+                onChange={(e) => handleMatchChange(leftItem.id, e.target.value)}
+              >
+                <option value="">-- Wybierz --</option>
+                {rightItems.map((rightItem) => (
+                  <option key={rightItem.id} value={rightItem.id}>
+                    {rightItem.option_text}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="text-sm text-muted-foreground">
+        <strong>Opcje do wyboru:</strong>
+        <div className="mt-2 space-y-1">
+          {rightItems.map((item, index) => (
+            <div key={item.id}>
+              {String.fromCharCode(65 + index)}. {item.option_text}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

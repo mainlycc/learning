@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import TrainingUpload from '@/components/admin/TrainingUpload'
 import TestCreator from '@/components/admin/TestCreator'
+import { SlideManager } from '@/components/admin/SlideManager'
 
 async function createTraining(formData: FormData): Promise<void> {
   'use server'
@@ -136,6 +137,10 @@ export default async function TrainingsManagePage() {
           <div className="mb-6">
             <h3 className="font-medium mb-2">Wgrywanie pliku do szkolenia</h3>
             <TrainingUpload />
+          </div>
+          <div className="mb-6">
+            <h3 className="font-medium mb-2">Zarządzanie slajdami</h3>
+            <SlideManager />
           </div>
           <div className="space-y-3">
             {trainings?.length ? trainings.map((t) => (

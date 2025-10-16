@@ -27,7 +27,7 @@ export default function TestCreator() {
 
   // Question form
   const [questionText, setQuestionText] = useState('')
-  const [questionType, setQuestionType] = useState<'single' | 'multiple' | 'true_false' | 'open'>('single')
+  const [questionType, setQuestionType] = useState<'single' | 'multiple' | 'true_false' | 'open' | 'fill_gaps' | 'matching'>('single')
   const [points, setPoints] = useState(1)
   const [options, setOptions] = useState<Array<{ text: string; correct: boolean }>>([
     { text: '', correct: false },
@@ -194,7 +194,7 @@ export default function TestCreator() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Typ</Label>
-              <Select value={questionType} onValueChange={(v: 'single' | 'multiple' | 'true_false' | 'open') => setQuestionType(v)}>
+              <Select value={questionType} onValueChange={(v: 'single' | 'multiple' | 'true_false' | 'open' | 'fill_gaps' | 'matching') => setQuestionType(v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -203,6 +203,8 @@ export default function TestCreator() {
                   <SelectItem value="multiple">Multiple</SelectItem>
                   <SelectItem value="true_false">Prawda/Fałsz</SelectItem>
                   <SelectItem value="open">Otwarta</SelectItem>
+                  <SelectItem value="fill_gaps">Uzupełnij luki</SelectItem>
+                  <SelectItem value="matching">Dopasuj pary</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -212,7 +214,94 @@ export default function TestCreator() {
             </div>
           </div>
 
-          {questionType !== 'open' && (
+          {questionType === 'fill_gaps' && (
+            <div className="space-y-4">
+              <div className="p-3 bg-blue-50 rounded-md">
+                <h4 className="font-medium mb-2">Instrukcje dla pytań &quot;Uzupełnij luki&quot;:</h4>
+                <p className="text-sm text-gray-600 mb-2">
+                  W treści pytania użyj znaczników <code className="bg-gray-200 px-1 rounded">{`{{gap1}}`}</code>, <code className="bg-gray-200 px-1 rounded">{`{{gap2}}`}</code> itd. 
+                  dla miejsc gdzie użytkownik ma wpisać odpowiedź.
+                </p>
+                <p className="text-sm text-gray-600">
+                  <strong>Przykład:</strong> &quot;Stolicą Polski jest {`{{gap1}}`}, a największą rzeką {`{{gap2}}`}.&quot;
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Poprawne odpowiedzi dla luk:</Label>
+                {options.map((o, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <span className="text-sm font-medium">Luka {idx + 1}:</span>
+                    <Input
+                      placeholder={`Poprawna odpowiedź dla luki ${idx + 1}`}
+                      value={o.text}
+                      onChange={(e) => handleChangeOption(idx, 'text', e.target.value)}
+                    />
+                    <input 
+                      type="checkbox" 
+                      checked={o.correct} 
+                      onChange={(e) => handleChangeOption(idx, 'correct', e.target.checked)}
+                      className="hidden"
+                    />
+                  </div>
+                ))}
+                <Button type="button" variant="outline" onClick={handleAddOption}>Dodaj lukę</Button>
+              </div>
+            </div>
+          )}
+
+          {questionType === 'matching' && (
+            <div className="space-y-4">
+              <div className="p-3 bg-green-50 rounded-md">
+                <h4 className="font-medium mb-2">Instrukcje dla pytań &quot;Dopasuj pary&quot;:</h4>
+                <p className="text-sm text-gray-600">
+                  Dodaj elementy w parach - pierwszy element każdej pary to element do dopasowania, 
+                  drugi to poprawna odpowiedź.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Pary do dopasowania:</Label>
+                {Array.from({ length: Math.ceil(options.length / 2) }, (_, pairIdx) => (
+                  <div key={pairIdx} className="grid grid-cols-2 gap-2 p-3 border rounded">
+                    <div>
+                      <Label className="text-sm">Element {pairIdx + 1}:</Label>
+                      <Input
+                        placeholder="Element do dopasowania"
+                        value={options[pairIdx * 2]?.text || ''}
+                        onChange={(e) => handleChangeOption(pairIdx * 2, 'text', e.target.value)}
+                      />
+                      <input 
+                        type="checkbox" 
+                        checked={options[pairIdx * 2]?.correct || false} 
+                        onChange={() => handleChangeOption(pairIdx * 2, 'correct', false)}
+                        className="hidden"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm">Poprawna odpowiedź:</Label>
+                      <Input
+                        placeholder="Poprawna odpowiedź"
+                        value={options[pairIdx * 2 + 1]?.text || ''}
+                        onChange={(e) => handleChangeOption(pairIdx * 2 + 1, 'text', e.target.value)}
+                      />
+                      <input 
+                        type="checkbox" 
+                        checked={options[pairIdx * 2 + 1]?.correct || true} 
+                        onChange={() => handleChangeOption(pairIdx * 2 + 1, 'correct', true)}
+                        className="hidden"
+                      />
+                    </div>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" onClick={() => setOptions(prev => [...prev, { text: '', correct: false }, { text: '', correct: true }])}>
+                  Dodaj parę
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {questionType !== 'open' && questionType !== 'fill_gaps' && questionType !== 'matching' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Odpowiedzi</Label>
