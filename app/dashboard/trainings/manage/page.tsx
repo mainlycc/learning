@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import TrainingUpload from '@/components/admin/TrainingUpload'
+import TestCreator from '@/components/admin/TestCreator'
 
 async function createTraining(formData: FormData) {
   'use server'
@@ -121,10 +122,10 @@ export default async function TrainingsManagePage() {
         <Card>
           <CardHeader>
             <CardTitle>Konfiguracja testów</CardTitle>
-            <CardDescription>Po utworzeniu szkolenia przejdź do jego konfiguracji testu.</CardDescription>
+            <CardDescription>Utwórz test i dodawaj pytania.</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">Wkrótce: Kreator testu</p>
+            <TestCreator />
           </CardContent>
         </Card>
       </div>
