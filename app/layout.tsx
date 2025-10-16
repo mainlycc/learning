@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import AppShell from "@/components/layout/AppShell";
+import { createClient } from "@/lib/supabase/server";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,11 +20,37 @@ export const metadata: Metadata = {
   description: "Nowoczesna platforma do zarządzania szkoleniami online",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Pobierz użytkownika, aby zdecydować czy renderować AppShell (sidebar/topbar)
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  let userProfile: {
+    id: string;
+    email: string;
+    full_name: string | null;
+    role: 'super_admin' | 'admin' | 'user';
+  } | null = null;
+
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    userProfile = profile || {
+      id: user.id,
+      email: user.email || '',
+      full_name: user.user_metadata?.full_name || null,
+      role: 'user',
+    };
+  }
+
   return (
     <html lang="pl" suppressHydrationWarning>
       <body
@@ -34,7 +62,8 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          {/* Jeśli użytkownik jest zalogowany, renderujemy globalny AppShell */}
+          <AppShell user={userProfile}>{children}</AppShell>
         </ThemeProvider>
       </body>
     </html>

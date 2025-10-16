@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { AppSidebar } from '@/components/layout/sidebar'
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
+// Globalny AppShell jest już w app/layout.tsx – tutaj pozostawiamy tylko autoryzację
 
 export default async function DashboardLayout({
   children,
@@ -56,23 +55,5 @@ export default async function DashboardLayout({
     .eq('id', user.id)
     .single()
 
-  const userProfile = finalProfile || {
-    id: user.id,
-    email: user.email || '',
-    full_name: user.user_metadata?.full_name || null,
-    role: 'user' as const
-  }
-
-  console.log('Final user profile:', userProfile) // Debug
-
-  return (
-    <SidebarProvider>
-      <AppSidebar user={userProfile} />
-      <SidebarInset>
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
-  )
+  return <>{children}</>
 }
