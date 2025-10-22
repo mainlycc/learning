@@ -3,7 +3,9 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import AppShell from "@/components/layout/AppShell";
+import RouteToast from "@/components/layout/RouteToast";
 import { createClient } from "@/lib/supabase/server";
+import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -64,6 +66,8 @@ export default async function RootLayout({
         >
           {/* Jeśli użytkownik jest zalogowany, renderujemy globalny AppShell */}
           <AppShell user={userProfile}>{children}</AppShell>
+          <RouteToast />
+          <Toaster richColors closeButton />
         </ThemeProvider>
       </body>
     </html>

@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Shield, Clock, Eye, Lock } from 'lucide-react'
+import { toast } from 'sonner'
 
 type Training = {
   id: string
@@ -114,6 +115,7 @@ export default function TrainingUpload() {
       if (updateError) throw updateError
 
       setMessage('Plik przesłany i zapisany pomyślnie.')
+      toast.success('Plik przesłany i zapisany pomyślnie.')
       // odśwież listę
       const { data } = await supabase
         .from('trainings')
@@ -124,6 +126,7 @@ export default function TrainingUpload() {
     } catch (e) {
       const err = e as { message?: string }
       setMessage(err?.message || 'Błąd podczas uploadu')
+      toast.error(err?.message || 'Błąd podczas uploadu')
     } finally {
       setIsUploading(false)
     }
@@ -148,6 +151,7 @@ export default function TrainingUpload() {
 
         if (error) throw error
         setMessage('Polityka dostępu zaktualizowana pomyślnie.')
+        toast.success('Polityka dostępu zaktualizowana pomyślnie.')
       } else {
         // Utwórz nową politykę
         const { error } = await supabase
@@ -156,6 +160,7 @@ export default function TrainingUpload() {
 
         if (error) throw error
         setMessage('Polityka dostępu utworzona pomyślnie.')
+        toast.success('Polityka dostępu utworzona pomyślnie.')
       }
 
       // Odśwież politykę
@@ -169,6 +174,7 @@ export default function TrainingUpload() {
     } catch (e) {
       const err = e as { message?: string }
       setMessage(err?.message || 'Błąd podczas zapisywania polityki dostępu')
+      toast.error(err?.message || 'Błąd podczas zapisywania polityki dostępu')
     }
   }
 

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import TrainingUpload from '@/components/admin/TrainingUpload'
 import TestCreator from '@/components/admin/TestCreator'
 import { SlideManager } from '@/components/admin/SlideManager'
+import { EditTrainingDialog } from '@/components/admin/EditTrainingDialog'
+import { DeleteTrainingDialog } from '@/components/admin/DeleteTrainingDialog'
 
 async function createTraining(formData: FormData): Promise<void> {
   'use server'
@@ -21,7 +23,9 @@ async function createTraining(formData: FormData): Promise<void> {
   const fileType = String(formData.get('file_type') || 'PDF') as 'PDF' | 'PPTX'
   const isActive = String(formData.get('is_active') || 'true') === 'true'
 
-  if (!title || !durationMinutes) return
+  if (!title || !durationMinutes) {
+    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Niepoprawne dane formularza'))
+  }
 
   const { error } = await supabase
     .from('trainings')
@@ -36,7 +40,11 @@ async function createTraining(formData: FormData): Promise<void> {
       is_active: isActive,
     })
 
-  if (error) return
+  if (error) {
+    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Błąd zapisu szkolenia'))
+  }
+
+  redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Zapisano szkolenie.'))
 }
 
 export default async function TrainingsManagePage() {
@@ -64,10 +72,10 @@ export default async function TrainingsManagePage() {
     )
   }
 
-  // Lista istniejących szkoleń (proste zestawienie)
+  // Lista istniejących szkoleń (pełne dane do edycji)
   const { data: trainings } = await supabase
     .from('trainings')
-    .select('id, title, file_type, duration_minutes, is_active, created_at')
+    .select('id, title, description, file_type, duration_minutes, is_active, created_at')
     .order('created_at', { ascending: false })
 
   return (
@@ -77,6 +85,42 @@ export default async function TrainingsManagePage() {
         <p className="text-muted-foreground">Dodawaj, edytuj i zarządzaj szkoleniami oraz testami.</p>
       </div>
 
+      {/* Lista szkoleń na górze */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Szkolenia</CardTitle>
+          <CardDescription>Przeglądaj, edytuj i usuwaj istniejące szkolenia</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {trainings?.length ? trainings.map((t) => (
+              <div key={t.id} className="flex items-center justify-between border rounded p-3">
+                <div className="space-y-0.5">
+                  <div className="font-medium">{t.title}</div>
+                  <div className="text-xs text-muted-foreground">{t.file_type} • {t.duration_minutes} min • {t.is_active ? 'Aktywne' : 'Nieaktywne'}</div>
+                </div>
+                <div className="flex gap-2">
+                  <a className="text-sm underline" href={`/dashboard/trainings/${t.id}`}>Podgląd</a>
+                  <a className="text-sm underline" href={`/dashboard/trainings/${t.id}/test`}>Test</a>
+                  <EditTrainingDialog training={{
+                    id: t.id,
+                    title: t.title,
+                    description: (t as any).description ?? null,
+                    duration_minutes: t.duration_minutes,
+                    file_type: t.file_type as 'PDF' | 'PPTX',
+                    is_active: t.is_active,
+                  }} />
+                  <DeleteTrainingDialog id={t.id} title={t.title} />
+                </div>
+              </div>
+            )) : (
+              <div className="text-sm text-muted-foreground">Brak szkoleń</div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Dodawanie szkolenia i testów pod listą */}
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -128,10 +172,11 @@ export default async function TrainingsManagePage() {
         </Card>
       </div>
 
+      {/* Dodatkowe narzędzia: upload i slajdy */}
       <Card>
         <CardHeader>
-          <CardTitle>Szkolenia</CardTitle>
-          <CardDescription>Lista ostatnio dodanych szkoleń</CardDescription>
+          <CardTitle>Narzędzia szkolenia</CardTitle>
+          <CardDescription>Wgrywanie plików i zarządzanie slajdami</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="mb-6">
@@ -141,22 +186,6 @@ export default async function TrainingsManagePage() {
           <div className="mb-6">
             <h3 className="font-medium mb-2">Zarządzanie slajdami</h3>
             <SlideManager />
-          </div>
-          <div className="space-y-3">
-            {trainings?.length ? trainings.map((t) => (
-              <div key={t.id} className="flex items-center justify-between border rounded p-3">
-                <div className="space-y-0.5">
-                  <div className="font-medium">{t.title}</div>
-                  <div className="text-xs text-muted-foreground">{t.file_type} • {t.duration_minutes} min • {t.is_active ? 'Aktywne' : 'Nieaktywne'}</div>
-                </div>
-                <div className="flex gap-2">
-                  <a className="text-sm underline" href={`/dashboard/trainings/${t.id}`}>Podgląd</a>
-                  <a className="text-sm underline" href={`/dashboard/trainings/${t.id}/test`}>Test</a>
-                </div>
-              </div>
-            )) : (
-              <div className="text-sm text-muted-foreground">Brak szkoleń</div>
-            )}
           </div>
         </CardContent>
       </Card>
