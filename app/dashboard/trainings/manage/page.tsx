@@ -105,7 +105,7 @@ export default async function TrainingsManagePage() {
                   <EditTrainingDialog training={{
                     id: t.id,
                     title: t.title,
-                    description: (t as any).description ?? null,
+                    description: t.description ?? null,
                     duration_minutes: t.duration_minutes,
                     file_type: t.file_type as 'PDF' | 'PPTX',
                     is_active: t.is_active,
