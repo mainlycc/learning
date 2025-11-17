@@ -185,6 +185,10 @@ export async function registerWithInvitation(
     return { success: false, error: validation.error }
   }
 
+  // Zapisz zweryfikowane wartości do zmiennych lokalnych
+  const userEmail = validation.email
+  const userRole = validation.role
+
   // Pobierz zaproszenie
   const { data: invitation } = await supabase
     .from('tutor_invitations')
@@ -204,7 +208,7 @@ export async function registerWithInvitation(
   // Sprawdź czy użytkownik już istnieje
   const { data: existingUsers } = await adminClient.auth.admin.listUsers()
   const existingUser = existingUsers?.users?.find(
-    (u) => u.email?.toLowerCase() === validation.email.toLowerCase()
+    (u) => u.email?.toLowerCase() === userEmail.toLowerCase()
   )
 
   if (existingUser) {
@@ -213,12 +217,12 @@ export async function registerWithInvitation(
 
   // Utwórz użytkownika z automatycznie potwierdzonym emailem
   const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-    email: validation.email,
+    email: userEmail,
     password,
     email_confirm: true, // Automatycznie potwierdź email - nie wysyłaj drugiego emaila
     user_metadata: {
       full_name: fullName,
-      role: validation.role,
+      role: userRole,
     },
   })
 
@@ -234,7 +238,7 @@ export async function registerWithInvitation(
   // Aktualizuj profil użytkownika (rolę), ponieważ trigger zawsze ustawia rolę na 'user'
   const { error: profileError } = await adminClient
     .from('profiles')
-    .update({ role: validation.role })
+    .update({ role: userRole })
     .eq('id', authData.user.id)
 
   if (profileError) {
