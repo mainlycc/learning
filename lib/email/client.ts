@@ -20,6 +20,6 @@ export const resend = {
 }
 
 // Resend wymaga formatu: "email@example.com" lub "Name <email@example.com>"
-export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'AIRSET <noreply@mail.mainly.pl>'
+export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'airset <noreply@mail.mainly.pl>'
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://airset.pl'
 

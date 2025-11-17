@@ -76,11 +76,12 @@ export async function inviteUser(formData: FormData) {
     }
 
     // Wygeneruj magic link do zaproszenia (bez automatycznego wysyłania emaila przez Supabase)
+    // Linki zaproszeń zawsze wskazują na airset.pl
     const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
       type: 'invite',
       email: email,
       options: {
-        redirectTo: `${APP_URL}/auth/callback?invite=true`,
+        redirectTo: `https://airset.pl/auth/callback?invite=true`,
         data: {
           full_name: fullName,
           role: role,
@@ -125,7 +126,7 @@ export async function inviteUser(formData: FormData) {
       await resend.emails.send({
         from: FROM_EMAIL,
         to: email,
-        subject: 'Zaproszenie do platformy AIRSET',
+        subject: 'Zaproszenie do platformy airset',
         html: emailHtml,
       })
     } catch (emailError) {
@@ -313,11 +314,12 @@ export async function resendInvitation(email: string) {
     }
 
     // Wygeneruj nowy magic link
+    // Linki zaproszeń zawsze wskazują na airset.pl
     const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
       type: 'invite',
       email: email,
       options: {
-        redirectTo: `${APP_URL}/auth/callback?invite=true`,
+        redirectTo: `https://airset.pl/auth/callback?invite=true`,
       },
     })
 
@@ -346,7 +348,7 @@ export async function resendInvitation(email: string) {
       await resend.emails.send({
         from: FROM_EMAIL,
         to: email,
-        subject: 'Zaproszenie do platformy AIRSET',
+        subject: 'Zaproszenie do platformy airset',
         html: emailHtml,
       })
     } catch (emailError) {

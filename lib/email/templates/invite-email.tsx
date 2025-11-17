@@ -35,7 +35,7 @@ export function InviteEmail({
       <Body style={main}>
         <Container style={container}>
           <Section style={header}>
-            <Text style={title}>AIRSET - Ochrona Lotnictwa Cywilnego</Text>
+            <Text style={title}>airset - Ochrona Lotnictwa Cywilnego</Text>
           </Section>
 
           <Section style={content}>
@@ -47,8 +47,8 @@ export function InviteEmail({
 
             <Text style={text}>
               {inviterName
-                ? `${inviterName} zaprosił Cię do platformy szkoleniowej AIRSET.`
-                : 'Zostałeś zaproszony do platformy szkoleniowej AIRSET.'}
+                ? `${inviterName} zaprosił Cię do platformy szkoleniowej airset.`
+                : 'Zostałeś zaproszony do platformy szkoleniowej airset.'}
             </Text>
 
             <Text style={text}>

@@ -107,19 +107,8 @@ export async function createInvitation(
   }
 
   // Wyślij email z zaproszeniem
-  // PRIORYTET 1: NEXT_PUBLIC_APP_URL (jeśli ustawiony, zawsze używamy go)
-  // PRIORYTET 2: VERCEL_URL tylko dla production
-  // PRIORYTET 3: airset.pl jako domyślna domena
-  let baseUrl = 'https://airset.pl'
-
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    // Zawsze używamy NEXT_PUBLIC_APP_URL jeśli jest ustawiony
-    baseUrl = process.env.NEXT_PUBLIC_APP_URL
-  } else if (process.env.VERCEL_ENV === 'production' && process.env.VERCEL_URL) {
-    // Tylko jeśli NEXT_PUBLIC_APP_URL nie jest ustawiony, używamy VERCEL_URL
-    baseUrl = `https://${process.env.VERCEL_URL}`
-  }
-
+  // Linki zaproszeń zawsze wskazują na airset.pl
+  const baseUrl = 'https://airset.pl'
   const invitationLink = `${baseUrl}/register?token=${invitation.token}`
 
   const emailResult = await sendInvitationEmail({
@@ -318,12 +307,8 @@ export async function resendInvitations(ids: string[]): Promise<{ success: boole
     return { success: false, error: 'Nie udało się pobrać zaproszeń' }
   }
 
-  let baseUrl = 'https://airset.pl'
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    baseUrl = process.env.NEXT_PUBLIC_APP_URL
-  } else if (process.env.VERCEL_ENV === 'production' && process.env.VERCEL_URL) {
-    baseUrl = `https://${process.env.VERCEL_URL}`
-  }
+  // Linki zaproszeń zawsze wskazują na airset.pl
+  const baseUrl = 'https://airset.pl'
 
   // Wyślij ponownie email dla każdego zaproszenia
   for (const invitation of invitations) {

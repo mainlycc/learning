@@ -29,7 +29,7 @@ export async function sendInvitationEmail({
     const { data, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to: [to],
-      subject: 'Zaproszenie do AIRSET - Aktywuj swoje konto',
+      subject: 'Zaproszenie do airset - Aktywuj swoje konto',
       html,
     })
 

@@ -9,7 +9,7 @@ export function generateInvitationEmail(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zaproszenie do AIRSET</title>
+  <title>Zaproszenie do airset</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Ubuntu, sans-serif; background-color: #f6f9fc;">
   <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f6f9fc;">
@@ -19,7 +19,7 @@ export function generateInvitationEmail(
           <!-- Header -->
           <tr>
             <td style="background-color: #1e293b; padding: 32px 24px; text-align: center;">
-              <h1 style="color: #ffffff; font-size: 24px; font-weight: bold; margin: 0;">AIRSET</h1>
+              <h1 style="color: #ffffff; font-size: 24px; font-weight: bold; margin: 0;">airset</h1>
             </td>
           </tr>
           
@@ -31,7 +31,7 @@ export function generateInvitationEmail(
               </p>
               
               <p style="color: #334155; font-size: 16px; line-height: 26px; margin: 0 0 16px;">
-                Zostałeś zaproszony do platformy szkoleniowej AIRSET. Aby rozpocząć korzystanie z platformy, kliknij poniższy przycisk i ustaw swoje hasło:
+                Zostałeś zaproszony do platformy szkoleniowej airset. Aby rozpocząć korzystanie z platformy, kliknij poniższy przycisk i ustaw swoje hasło:
               </p>
               
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 32px 0;">
