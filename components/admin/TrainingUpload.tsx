@@ -7,13 +7,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Shield, Clock, Eye, Lock } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Shield, Clock, Eye, Lock, FileUp, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.pptx'] as const
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+]
+const MAX_FILE_SIZE_MB = 40
 
 type Training = {
   id: string
   title: string
   file_path: string
+  file_type: 'PDF' | 'PPTX'
 }
 
 type AccessPolicy = {
@@ -30,6 +39,10 @@ export default function TrainingUpload() {
   const [file, setFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewExpiresAt, setPreviewExpiresAt] = useState<number | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   
   // Polityki dostępu
   const [selectedPolicyType, setSelectedPolicyType] = useState<'full' | 'preview' | 'time_limited'>('full')
@@ -40,7 +53,7 @@ export default function TrainingUpload() {
     const load = async () => {
       const { data } = await supabase
         .from('trainings')
-        .select('id, title, file_path')
+        .select('id, title, file_path, file_type')
         .order('title', { ascending: true })
       setTrainings(data || [])
     }
@@ -85,6 +98,43 @@ export default function TrainingUpload() {
   }, [selectedId, supabase])
 
   const canUpload = useMemo(() => !!selectedId && !!file && !isUploading, [selectedId, file, isUploading])
+  const selectedTraining = useMemo(
+    () => trainings.find((training) => training.id === selectedId),
+    [trainings, selectedId]
+  )
+
+  useEffect(() => {
+    setPreviewUrl(null)
+    setPreviewError(null)
+    setPreviewExpiresAt(null)
+  }, [selectedId])
+
+  useEffect(() => {
+    if (!previewExpiresAt || !previewUrl) return
+
+    const timeout = setTimeout(() => {
+      setPreviewUrl(null)
+      setPreviewExpiresAt(null)
+    }, Math.max(previewExpiresAt - Date.now(), 5_000))
+
+    return () => clearTimeout(timeout)
+  }, [previewExpiresAt, previewUrl])
+
+  const validateFile = (inputFile: File) => {
+    const lowerName = inputFile.name.toLowerCase()
+    const matchesExtension = ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))
+    const matchesMime = ALLOWED_MIME_TYPES.includes(inputFile.type)
+
+    if (!matchesExtension && !matchesMime) {
+      return 'Dozwolone formaty: PDF lub PPTX.'
+    }
+
+    if (inputFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      return `Maksymalny rozmiar pliku to ${MAX_FILE_SIZE_MB} MB.`
+    }
+
+    return null
+  }
 
   const getFileType = (f: File): 'PDF' | 'PPTX' => {
     const name = f.name.toLowerCase()
@@ -98,6 +148,13 @@ export default function TrainingUpload() {
     setMessage(null)
 
     try {
+      const validationError = validateFile(file)
+      if (validationError) {
+        setMessage(validationError)
+        toast.error(validationError)
+        return
+      }
+
       const user = (await supabase.auth.getUser()).data.user
       if (!user) throw new Error('Brak sesji użytkownika')
 
@@ -119,16 +176,51 @@ export default function TrainingUpload() {
       // odśwież listę
       const { data } = await supabase
         .from('trainings')
-        .select('id, title, file_path')
+        .select('id, title, file_path, file_type')
         .order('title', { ascending: true })
       setTrainings(data || [])
       setFile(null)
+      setPreviewUrl(null)
+      setPreviewExpiresAt(null)
     } catch (e) {
       const err = e as { message?: string }
       setMessage(err?.message || 'Błąd podczas uploadu')
       toast.error(err?.message || 'Błąd podczas uploadu')
     } finally {
       setIsUploading(false)
+    }
+  }
+
+  const handlePreviewClick = async () => {
+    if (!selectedTraining?.file_path) {
+      const info = 'Najpierw wgraj plik, aby włączyć podgląd.'
+      setPreviewError(info)
+      toast.error(info)
+      return
+    }
+
+    setIsGeneratingPreview(true)
+    setPreviewError(null)
+
+    try {
+      const { data, error } = await supabase.storage
+        .from('trainings')
+        .createSignedUrl(selectedTraining.file_path, 60 * 5)
+
+      if (error || !data?.signedUrl) {
+        throw new Error(error?.message || 'Nie udało się wygenerować linku podglądu.')
+      }
+
+      setPreviewUrl(data.signedUrl)
+      setPreviewExpiresAt(Date.now() + 5 * 60 * 1000)
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+      toast.success('Wygenerowano link podglądu (ważny 5 minut).')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nieudany podgląd pliku.'
+      setPreviewError(message)
+      toast.error(message)
+    } finally {
+      setIsGeneratingPreview(false)
     }
   }
 
@@ -220,6 +312,46 @@ export default function TrainingUpload() {
             </Select>
           </div>
 
+          {selectedTraining && (
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span>Status pliku</span>
+                <Badge variant={selectedTraining.file_path ? 'default' : 'outline'}>
+                  {selectedTraining.file_path ? selectedTraining.file_type : 'Brak pliku'}
+                </Badge>
+              </div>
+              {selectedTraining.file_path ? (
+                <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                  <p className="break-all text-[11px]">Ścieżka: {selectedTraining.file_path}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handlePreviewClick}
+                      disabled={isGeneratingPreview}
+                      className="text-xs"
+                    >
+                      <ExternalLink className="mr-2 h-3 w-3" />
+                      {isGeneratingPreview ? 'Generowanie linku...' : 'Podgląd pliku'}
+                    </Button>
+                    {previewUrl && previewExpiresAt && (
+                      <span>
+                        Link aktywny do{' '}
+                        {new Date(previewExpiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  {previewError && <p className="text-red-500">{previewError}</p>}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Wgraj plik PDF lub PPTX, aby udostępnić źródłową wersję szkolenia.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="file">Plik (PDF lub PPTX)</Label>
             <Input
@@ -228,10 +360,23 @@ export default function TrainingUpload() {
               accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
+            <p className="text-xs text-muted-foreground">
+              Maksymalny rozmiar: {MAX_FILE_SIZE_MB} MB. Obsługiwane formaty: PDF, PPTX.
+            </p>
           </div>
 
           <Button onClick={onUpload} disabled={!canUpload}>
-            {isUploading ? 'Wgrywanie...' : 'Wyślij plik'}
+            {isUploading ? (
+              <>
+                <FileUp className="mr-2 h-4 w-4 animate-pulse" />
+                Wgrywanie...
+              </>
+            ) : (
+              <>
+                <FileUp className="mr-2 h-4 w-4" />
+                Wyślij plik
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>

@@ -24,12 +24,15 @@ export default async function TrainingTestPage({ params }: PageProps) {
   if (!training) notFound()
 
   // Pobierz test przypisany do szkolenia (na razie jeden test na szkolenie)
-  const { data: test } = await supabase
+  const { data: tests } = await supabase
     .from('tests')
     .select('*')
     .eq('training_id', id)
+    .order('created_at', { ascending: false })
     .limit(1)
-    .single()
+
+  const test = tests?.[0]
+
   if (!test) {
     return (
       <Card>

@@ -3,9 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { BookOpen, Clock, Play, CheckCircle, ArrowLeft } from 'lucide-react'
+import { BookOpen, Clock, Play, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import JSZip from 'jszip'
 
 interface TrainingDetailPageProps {
   params: Promise<{
@@ -42,16 +43,47 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
     .single()
 
   // Pobierz slajdy szkolenia
-  await supabase
+  const { data: slides } = await supabase
     .from('training_slides')
-    .select('*')
+    .select('id, slide_number')
     .eq('training_id', id)
     .order('slide_number', { ascending: true })
 
+  let slideCount = slides?.length ?? training.slides_count ?? 0
+
+  if (slideCount === 0 && training.file_type === 'PPTX' && training.file_path) {
+    const { data: signedUrlData } = await supabase.storage
+      .from('trainings')
+      .createSignedUrl(training.file_path, 60)
+
+    if (signedUrlData?.signedUrl) {
+      try {
+        const response = await fetch(signedUrlData.signedUrl)
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer()
+          const zip = await JSZip.loadAsync(arrayBuffer)
+          const slideFiles = Object.keys(zip.files).filter(
+            (name) => name.startsWith('ppt/slides/slide') && name.endsWith('.xml')
+          )
+          slideCount = slideFiles.length || slideCount
+        }
+      } catch (error) {
+        console.error('Nie udało się policzyć slajdów PPTX:', error)
+      }
+    }
+  }
+
   const isCompleted = userProgress?.status === 'completed'
   const isInProgress = userProgress?.status === 'in_progress'
-  const progressPercentage = isCompleted ? 100 : 
-    userProgress ? Math.round((userProgress.current_slide / training.slides_count) * 100) : 0
+  const progressPercentage = isCompleted
+    ? 100
+    : userProgress && slideCount > 0
+      ? Math.min(Math.round((userProgress.current_slide / slideCount) * 100), 100)
+      : 0
+
+  const remainingSlides = userProgress && slideCount > 0
+    ? Math.max(slideCount - userProgress.current_slide, 0)
+    : null
 
   const getStatusBadge = () => {
     if (isCompleted) {
@@ -109,13 +141,15 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
                   <BookOpen className="h-5 w-5 text-muted-foreground" />
                   <div>
                     <p className="text-sm font-medium">Liczba slajdów</p>
-                    <p className="text-sm text-muted-foreground">{training.slides_count} slajdów</p>
+                    <p className="text-sm text-muted-foreground">
+                      {slideCount > 0 ? `${slideCount} slajdów` : 'Brak danych o slajdach'}
+                    </p>
                   </div>
                 </div>
               </div>
 
               {/* Postęp użytkownika */}
-              {userProgress && (
+              {userProgress ? (
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">Twój postęp</span>
@@ -124,13 +158,25 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
                   <Progress value={progressPercentage} className="h-3" />
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>
-                      {isCompleted ? 'Ukończone' : `Slajd ${userProgress.current_slide} z ${training.slides_count}`}
+                      {isCompleted
+                        ? 'Ukończone'
+                        : slideCount > 0
+                          ? `Slajd ${Math.min(userProgress.current_slide, slideCount)} z ${slideCount}`
+                          : `Rozpoczęte – brak danych o slajdach`}
                     </span>
                     <span>
-                      {isCompleted ? '' : `Pozostało: ${training.slides_count - userProgress.current_slide} slajdów`}
+                      {isCompleted
+                        ? ''
+                        : slideCount > 0
+                          ? `Pozostało: ${remainingSlides} ${remainingSlides === 1 ? 'slajd' : 'slajdów'}`
+                          : null}
                     </span>
                   </div>
                 </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Jeszcze nie rozpocząłeś tego szkolenia.
+                </p>
               )}
 
               {/* Akcje */}
@@ -179,21 +225,23 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
                 </p>
               </div>
 
-              {training.file_type === 'PPTX' && (
-                <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
-                  <p className="text-sm text-blue-800 dark:text-blue-200">
-                    💡 <strong>Tip:</strong> Prezentacje PowerPoint są konwertowane na slajdy do wygodnego przeglądania.
+              <div className="p-3 rounded-lg border border-dashed text-sm space-y-1">
+                <p className="font-medium flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  Status materiałów
+                </p>
+                {slideCount > 0 ? (
+                  <p className="text-muted-foreground">
+                    Dostępnych slajdów: <strong>{slideCount}</strong>. Plik źródłowy typu {training.file_type}
+                    {' '}
+                    {training.file_type === 'PPTX' ? 'jest renderowany w Office Viewer.' : 'jest konwertowany do podglądu.'}
                   </p>
-                </div>
-              )}
-
-              {training.file_type === 'PDF' && (
-                <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg">
-                  <p className="text-sm text-green-800 dark:text-green-200">
-                    📄 <strong>PDF:</strong> Dokument jest podzielony na slajdy z zachowaniem jakości.
+                ) : (
+                  <p className="text-muted-foreground">
+                    Jeszcze nie wgrano slajdów dla tego szkolenia. Sprawdź podgląd, aby wygenerować je ponownie.
                   </p>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
 

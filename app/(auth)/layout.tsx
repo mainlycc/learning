@@ -15,7 +15,7 @@ export default async function AuthLayout({
             Ochrona Lotnictwa Cywilnego
           </p>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Zaloguj się, aby kontynuować
+            Platforma szkoleniowa
           </p>
         </div>
         {children}

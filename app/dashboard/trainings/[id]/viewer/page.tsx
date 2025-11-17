@@ -31,14 +31,26 @@ export default async function TrainingViewerPage({ params }: TrainingViewerPageP
   }
 
   // Pobierz slajdy szkolenia
-  const { data: slides } = await supabase
+  const { data: slidesData } = await supabase
     .from('training_slides')
     .select('*')
     .eq('training_id', id)
     .order('slide_number', { ascending: true })
 
-  if (!slides || slides.length === 0) {
-    notFound()
+  let slides = slidesData || []
+
+  if (slides.length === 0) {
+    if (training.file_type === 'PPTX' && training.file_path) {
+      slides = [{
+        id: `${training.id}-pptx-fallback`,
+        training_id: training.id,
+        slide_number: 1,
+        image_url: '',
+        min_time_seconds: Math.max(30, (training.duration_minutes || 1) * 60),
+      }]
+    } else {
+      notFound()
+    }
   }
 
   // Pobierz postęp użytkownika

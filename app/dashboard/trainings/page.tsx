@@ -6,9 +6,12 @@ import { Progress } from '@/components/ui/progress'
 import { BookOpen, Clock, Play, CheckCircle } from 'lucide-react'
 import Link from 'next/link'
 import type { Database } from '@/lib/types/database'
+import JSZip from 'jszip'
 
 type Training = Database['public']['Tables']['trainings']['Row']
 type UserProgress = Database['public']['Tables']['user_training_progress']['Row']
+
+type TrainingWithCount = Training & { resolvedSlidesCount: number }
 
 export default async function TrainingsPage() {
   const supabase = await createClient()
@@ -30,14 +33,68 @@ export default async function TrainingsPage() {
     .select('*')
     .eq('user_id', user.id)
 
+  const trainingIds = trainings?.map((t) => t.id) ?? []
+
+  let slidesCountMap: Record<string, number> = {}
+  if (trainingIds.length > 0) {
+    const { data: slides } = await supabase
+      .from('training_slides')
+      .select('training_id')
+      .in('training_id', trainingIds)
+
+    slidesCountMap = slides?.reduce<Record<string, number>>((acc, slide) => {
+      acc[slide.training_id] = (acc[slide.training_id] || 0) + 1
+      return acc
+    }, {}) ?? {}
+  }
+
+  const resolvedTrainings: TrainingWithCount[] = trainings
+    ? await Promise.all(
+        trainings.map(async (training) => {
+          const initialCount = slidesCountMap[training.id] ?? training.slides_count ?? 0
+
+          if (initialCount > 0 || training.file_type !== 'PPTX' || !training.file_path) {
+            return { ...training, resolvedSlidesCount: initialCount }
+          }
+
+          const { data: signedUrlData } = await supabase.storage
+            .from('trainings')
+            .createSignedUrl(training.file_path, 60)
+
+          if (!signedUrlData?.signedUrl) {
+            return { ...training, resolvedSlidesCount: initialCount }
+          }
+
+          try {
+            const response = await fetch(signedUrlData.signedUrl)
+            if (!response.ok) {
+              return { ...training, resolvedSlidesCount: initialCount }
+            }
+
+            const arrayBuffer = await response.arrayBuffer()
+            const zip = await JSZip.loadAsync(arrayBuffer)
+            const slideFiles = Object.keys(zip.files).filter(
+              (name) => name.startsWith('ppt/slides/slide') && name.endsWith('.xml')
+            )
+
+            return { ...training, resolvedSlidesCount: slideFiles.length || initialCount }
+          } catch (error) {
+            console.error('Nie udało się policzyć slajdów PPTX:', error)
+            return { ...training, resolvedSlidesCount: initialCount }
+          }
+        })
+      )
+    : []
+
   const getProgressForTraining = (trainingId: string) => {
     return progress?.find(p => p.training_id === trainingId)
   }
 
-  const getProgressPercentage = (progress: UserProgress | undefined, training: Training) => {
+  const getProgressPercentage = (progress: UserProgress | undefined, slidesCount: number) => {
     if (!progress) return 0
     if (progress.status === 'completed') return 100
-    return Math.round((progress.current_slide / training.slides_count) * 100)
+    if (slidesCount === 0) return 0
+    return Math.min(Math.round((progress.current_slide / slidesCount) * 100), 100)
   }
 
   return (
@@ -52,9 +109,9 @@ export default async function TrainingsPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {trainings?.map((training) => {
+        {resolvedTrainings?.map((training) => {
           const userProgress = getProgressForTraining(training.id)
-          const progressPercentage = getProgressPercentage(userProgress, training)
+          const progressPercentage = getProgressPercentage(userProgress, training.resolvedSlidesCount)
           const isCompleted = userProgress?.status === 'completed'
           const isInProgress = userProgress?.status === 'in_progress'
 
@@ -85,7 +142,9 @@ export default async function TrainingsPage() {
                 
                 <div className="flex items-center text-sm text-muted-foreground">
                   <BookOpen className="mr-2 h-4 w-4" />
-                  {training.slides_count} slajdów
+                  {training.resolvedSlidesCount > 0
+                    ? `${training.resolvedSlidesCount} slajdów`
+                    : 'Brak danych o slajdach'}
                 </div>
 
                 {isInProgress && (
@@ -96,7 +155,9 @@ export default async function TrainingsPage() {
                     </div>
                     <Progress value={progressPercentage} className="h-2" />
                     <div className="text-xs text-muted-foreground">
-                      Slajd {userProgress?.current_slide} z {training.slides_count}
+                      {training.resolvedSlidesCount > 0
+                        ? `Slajd ${Math.min(userProgress?.current_slide ?? 0, training.resolvedSlidesCount)} z ${training.resolvedSlidesCount}`
+                        : 'Trwa wczytywanie informacji o slajdach'}
                     </div>
                   </div>
                 )}

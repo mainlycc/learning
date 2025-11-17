@@ -120,3 +120,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Doc viewer overrides */
+#react-doc-viewer,
+#react-doc-viewer > #proxy-renderer,
+#react-doc-viewer #msdoc-renderer,
+#react-doc-viewer #msdoc-iframe {
+  height: 100%;
+}
+
+#react-doc-viewer > #proxy-renderer {
+  display: flex;
+  flex: 1;
+}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,7 +22,8 @@ export default function TestCreator() {
   const [maxAttempts, setMaxAttempts] = useState<number | ''>('')
   const [questionsCount, setQuestionsCount] = useState<number | ''>('')
   const [randomize, setRandomize] = useState<'true' | 'false'>('true')
-  const [createdTest, setCreatedTest] = useState<TestRow | null>(null)
+  const [tests, setTests] = useState<TestRow[]>([])
+  const [selectedTestId, setSelectedTestId] = useState('')
   const [creating, setCreating] = useState(false)
 
   // Question form
@@ -36,18 +37,51 @@ export default function TestCreator() {
   const [addingQuestion, setAddingQuestion] = useState(false)
 
   useEffect(() => {
-    const load = async () => {
+    const loadTrainings = async () => {
       const { data } = await supabase
         .from('trainings')
         .select('id, title')
         .order('title', { ascending: true })
       setTrainings(data || [])
     }
-    load()
+    loadTrainings()
   }, [supabase])
 
+  const loadTests = useCallback(async (trainingId: string, preferredTestId?: string) => {
+    if (!trainingId) {
+      setTests([])
+      setSelectedTestId('')
+      return
+    }
+    const { data } = await supabase
+      .from('tests')
+      .select('id, title')
+      .eq('training_id', trainingId)
+      .order('created_at', { ascending: false })
+    const loadedTests = data || []
+    setTests(loadedTests)
+    if (!loadedTests.length) {
+      setSelectedTestId('')
+      return
+    }
+    if (preferredTestId && loadedTests.some((test) => test.id === preferredTestId)) {
+      setSelectedTestId(preferredTestId)
+      return
+    }
+    setSelectedTestId((prev) => (prev && loadedTests.some((test) => test.id === prev) ? prev : loadedTests[0].id))
+  }, [supabase])
+
+  useEffect(() => {
+    if (!selectedTrainingId) {
+      setTests([])
+      setSelectedTestId('')
+      return
+    }
+    loadTests(selectedTrainingId)
+  }, [selectedTrainingId, loadTests])
+
   const canCreateTest = useMemo(() => !!selectedTrainingId && !!testTitle && !creating, [selectedTrainingId, testTitle, creating])
-  const canAddQuestion = useMemo(() => !!createdTest && !!questionText && !addingQuestion, [createdTest, questionText, addingQuestion])
+  const canAddQuestion = useMemo(() => !!selectedTestId && !!questionText && !addingQuestion, [selectedTestId, questionText, addingQuestion])
 
   const handleCreateTest = async () => {
     if (!selectedTrainingId) return
@@ -67,7 +101,9 @@ export default function TestCreator() {
         .select('id, title')
         .single()
       if (error) throw error
-      setCreatedTest(data!)
+      if (data) {
+        await loadTests(selectedTrainingId, data.id)
+      }
     } catch {
       // noop
     } finally {
@@ -81,13 +117,13 @@ export default function TestCreator() {
   }
 
   const handleAddQuestion = async () => {
-    if (!createdTest) return
+    if (!selectedTestId) return
     setAddingQuestion(true)
     try {
       const { data: q, error: qErr } = await supabase
         .from('test_questions')
         .insert({
-          test_id: createdTest.id,
+          test_id: selectedTestId,
           question_type: questionType,
           question_text: questionText,
           points,
@@ -142,6 +178,33 @@ export default function TestCreator() {
             </Select>
           </div>
 
+          {selectedTrainingId ? (
+            <div className="space-y-2">
+              <Label htmlFor="testSelect">Test (wybierz istniejący lub utwórz nowy)</Label>
+              <Select
+                value={selectedTestId}
+                onValueChange={(value) => setSelectedTestId(value)}
+                disabled={!tests.length}
+              >
+                <SelectTrigger id="testSelect">
+                  <SelectValue placeholder={tests.length ? 'Wybierz test' : 'Brak testów dla tego szkolenia'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {tests.map((test) => (
+                    <SelectItem key={test.id} value={test.id}>
+                      {test.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!tests.length && (
+                <p className="text-sm text-muted-foreground">
+                  Utwórz nowy test, aby móc dodawać pytania.
+                </p>
+              )}
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="testTitle">Tytuł testu</Label>
@@ -178,8 +241,10 @@ export default function TestCreator() {
           </div>
 
           <Button onClick={handleCreateTest} disabled={!canCreateTest}>{creating ? 'Tworzenie...' : 'Utwórz test'}</Button>
-          {createdTest ? (
-            <div className="text-sm text-muted-foreground">Utworzono test: {createdTest.title}</div>
+          {selectedTestId ? (
+            <div className="text-sm text-muted-foreground">
+              Aktualnie dodajesz pytania do: {tests.find((t) => t.id === selectedTestId)?.title || 'wybrany test'}
+            </div>
           ) : null}
         </CardContent>
       </Card>

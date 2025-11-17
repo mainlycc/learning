@@ -5,11 +5,22 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import TrainingUpload from '@/components/admin/TrainingUpload'
 import TestCreator from '@/components/admin/TestCreator'
 import { SlideManager } from '@/components/admin/SlideManager'
 import { EditTrainingDialog } from '@/components/admin/EditTrainingDialog'
 import { DeleteTrainingDialog } from '@/components/admin/DeleteTrainingDialog'
+import { toggleTrainingStatus } from './actions'
+import { Power, PowerOff } from 'lucide-react'
 
 async function createTraining(formData: FormData): Promise<void> {
   'use server'
@@ -85,38 +96,107 @@ export default async function TrainingsManagePage() {
         <p className="text-muted-foreground">Dodawaj, edytuj i zarządzaj szkoleniami oraz testami.</p>
       </div>
 
-      {/* Lista szkoleń na górze */}
+      {/* Tabela szkoleń */}
       <Card>
         <CardHeader>
           <CardTitle>Szkolenia</CardTitle>
-          <CardDescription>Przeglądaj, edytuj i usuwaj istniejące szkolenia</CardDescription>
+          <CardDescription>Przeglądaj, edytuj i zarządzaj statusem istniejących szkoleń</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {trainings?.length ? trainings.map((t) => (
-              <div key={t.id} className="flex items-center justify-between border rounded p-3">
-                <div className="space-y-0.5">
-                  <div className="font-medium">{t.title}</div>
-                  <div className="text-xs text-muted-foreground">{t.file_type} • {t.duration_minutes} min • {t.is_active ? 'Aktywne' : 'Nieaktywne'}</div>
-                </div>
-                <div className="flex gap-2">
-                  <a className="text-sm underline" href={`/dashboard/trainings/${t.id}`}>Podgląd</a>
-                  <a className="text-sm underline" href={`/dashboard/trainings/${t.id}/test`}>Test</a>
-                  <EditTrainingDialog training={{
-                    id: t.id,
-                    title: t.title,
-                    description: t.description ?? null,
-                    duration_minutes: t.duration_minutes,
-                    file_type: t.file_type as 'PDF' | 'PPTX',
-                    is_active: t.is_active,
-                  }} />
-                  <DeleteTrainingDialog id={t.id} title={t.title} />
-                </div>
-              </div>
-            )) : (
-              <div className="text-sm text-muted-foreground">Brak szkoleń</div>
-            )}
-          </div>
+          {trainings?.length ? (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tytuł</TableHead>
+                    <TableHead>Typ pliku</TableHead>
+                    <TableHead>Czas trwania</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Data utworzenia</TableHead>
+                    <TableHead className="text-right">Akcje</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {trainings.map((t) => (
+                    <TableRow key={t.id}>
+                      <TableCell className="font-medium">{t.title}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{t.file_type}</Badge>
+                      </TableCell>
+                      <TableCell>{t.duration_minutes} min</TableCell>
+                      <TableCell>
+                        {t.is_active ? (
+                          <Badge variant="default" className="bg-green-600 hover:bg-green-700">
+                            Aktywne
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-gray-100 text-gray-700">
+                            Nieaktywne
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {new Date(t.created_at).toLocaleDateString('pl-PL')}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <form action={toggleTrainingStatus}>
+                            <input type="hidden" name="id" value={t.id} />
+                            <input type="hidden" name="current_status" value={String(t.is_active)} />
+                            <Button
+                              type="submit"
+                              variant={t.is_active ? "outline" : "default"}
+                              size="sm"
+                              title={t.is_active ? "Deaktywuj szkolenie" : "Aktywuj szkolenie"}
+                            >
+                              {t.is_active ? (
+                                <>
+                                  <PowerOff className="h-4 w-4 mr-1" />
+                                  Deaktywuj
+                                </>
+                              ) : (
+                                <>
+                                  <Power className="h-4 w-4 mr-1" />
+                                  Aktywuj
+                                </>
+                              )}
+                            </Button>
+                          </form>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            asChild
+                          >
+                            <a href={`/dashboard/trainings/${t.id}`}>Podgląd</a>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            asChild
+                          >
+                            <a href={`/dashboard/trainings/${t.id}/test`}>Test</a>
+                          </Button>
+                          <EditTrainingDialog training={{
+                            id: t.id,
+                            title: t.title,
+                            description: t.description ?? null,
+                            duration_minutes: t.duration_minutes,
+                            file_type: t.file_type as 'PDF' | 'PPTX',
+                            is_active: t.is_active,
+                          }} />
+                          <DeleteTrainingDialog id={t.id} title={t.title} />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground text-center py-8">
+              Brak szkoleń
+            </div>
+          )}
         </CardContent>
       </Card>
 

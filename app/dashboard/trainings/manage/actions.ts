@@ -63,4 +63,32 @@ export async function deleteTraining(formData: FormData) {
   redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Usunięto szkolenie.'))
 }
 
+export async function toggleTrainingStatus(formData: FormData) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Brak uprawnień'))
+  }
+
+  const id = String(formData.get('id') || '').trim()
+  const currentStatus = String(formData.get('current_status') || 'false') === 'true'
+  
+  if (!id) {
+    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Brak identyfikatora szkolenia'))
+  }
+
+  const { error } = await supabase
+    .from('trainings')
+    .update({ is_active: !currentStatus })
+    .eq('id', id)
+
+  if (error) {
+    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Błąd zmiany statusu szkolenia'))
+  }
+
+  redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent(
+    !currentStatus ? 'Szkolenie zostało aktywowane.' : 'Szkolenie zostało deaktywowane.'
+  ))
+}
+
 

@@ -19,7 +19,8 @@ import {
   Shield,
   Moon,
   Sun,
-  Plane
+  Plane,
+  Mail
 } from 'lucide-react'
 import { NotificationCenter } from './NotificationCenter'
 import {
@@ -89,6 +90,12 @@ export function AppSidebar({ user }: SidebarProps) {
       name: 'Użytkownicy',
       href: '/dashboard/users',
       icon: Users,
+      roles: ['super_admin', 'admin']
+    },
+    {
+      name: 'Zaproszenia',
+      href: '/dashboard/invitations',
+      icon: Mail,
       roles: ['super_admin', 'admin']
     },
     {

@@ -1,6 +1,9 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import dynamic from 'next/dynamic'
+import type { DocViewerProps } from '@cyntler/react-doc-viewer'
+import '@cyntler/react-doc-viewer/dist/index.css'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -17,10 +20,42 @@ import {
   AlertCircle,
   Shield,
   Eye,
-  Lock
+  Lock,
+  RefreshCw
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { PptxRenderer, PPTX_RENDERER_FILE_TYPES } from '@/components/doc-renderers/PptxRenderer'
+import JSZip from 'jszip'
+
+const DocViewerLazy = dynamic(
+  async () => {
+    const mod = await import('@cyntler/react-doc-viewer')
+    const pluginRenderers = [
+      PptxRenderer,
+      ...mod.DocViewerRenderers.filter((renderer) =>
+        !renderer.fileTypes?.some((type) => PPTX_RENDERER_FILE_TYPES.includes(type))
+      )
+    ]
+    const DocViewerComponent = (props: DocViewerProps) => (
+      <mod.default
+        {...props}
+        pluginRenderers={pluginRenderers}
+        style={{ width: '100%', height: '100%' }}
+      />
+    )
+    DocViewerComponent.displayName = 'DocViewerLazy'
+    return DocViewerComponent
+  },
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+        Ładowanie podglądu PPTX...
+      </div>
+    )
+  }
+)
 
 interface TrainingSlide {
   id: string
@@ -36,6 +71,7 @@ interface Training {
   duration_minutes: number
   slides_count: number
   file_type: 'PDF' | 'PPTX'
+  file_path: string
 }
 
 interface UserProgress {
@@ -66,6 +102,11 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
   const [slideActivity, setSlideActivity] = useState<{ [key: string]: number }>({})
   const [showInactivityWarning, setShowInactivityWarning] = useState(false)
   const [isCompleted, setIsCompleted] = useState(false)
+  const [pptxDocs, setPptxDocs] = useState<DocViewerProps['documents']>([])
+  const [pptxStatus, setPptxStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [pptxError, setPptxError] = useState<string | null>(null)
+  const [signedUrlExpiresAt, setSignedUrlExpiresAt] = useState<number | null>(null)
+  const [pptxSlideCount, setPptxSlideCount] = useState<number | null>(null)
   
   const supabase = createClient()
   const timerRef = useRef<NodeJS.Timeout | null>(null)
@@ -76,7 +117,25 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
   const currentSlide = slides[currentSlideIndex]
   const minTimeReached = timeOnSlide >= currentSlide?.min_time_seconds
   const canProceed = minTimeReached && !isPaused
-  const progressPercentage = Math.round(((currentSlideIndex + 1) / slides.length) * 100)
+  const totalTimeSpentSeconds = useMemo(
+    () => Object.values(slideActivity).reduce((sum, time) => sum + time, 0),
+    [slideActivity]
+  )
+  const totalTrainingSeconds = training.duration_minutes * 60
+  const remainingTrainingSeconds = Math.max(totalTrainingSeconds - totalTimeSpentSeconds, 0)
+  const remainingTimePercentage = totalTrainingSeconds
+    ? (remainingTrainingSeconds / totalTrainingSeconds) * 100
+    : 0
+  const totalSlidesCount = useMemo(() => {
+    const metadataCount = training.slides_count ?? 0
+    const preloadedCount = slides.length
+
+    if (training.file_type === 'PPTX') {
+      return pptxSlideCount ?? Math.max(metadataCount, preloadedCount)
+    }
+
+    return preloadedCount || metadataCount
+  }, [slides.length, training.file_type, training.slides_count, pptxSlideCount])
 
   // Zapisz postęp do bazy danych
   const saveProgress = useCallback(async () => {
@@ -232,6 +291,94 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  const shouldShowPptxViewer = training.file_type === 'PPTX' && Boolean(training.file_path)
+  const canRefreshSignedUrl = shouldShowPptxViewer && pptxStatus !== 'loading'
+
+  const docViewerConfig = useMemo<DocViewerProps['config']>(() => ({
+    header: {
+      disableHeader: true,
+      disableFileName: true,
+      retainURLParams: true
+    },
+    enableDownload: false,
+    pdfVerticalScrollByDefault: true,
+    textSelection: true
+  }), [])
+
+  const extractPptxSlideCount = useCallback(async (signedUrl: string) => {
+    try {
+      const response = await fetch(signedUrl)
+      if (!response.ok) {
+        throw new Error('Nie udało się pobrać pliku PPTX.')
+      }
+
+      const arrayBuffer = await response.arrayBuffer()
+      const zip = await JSZip.loadAsync(arrayBuffer)
+      const slideFiles = Object.keys(zip.files).filter(
+        (name) => name.startsWith('ppt/slides/slide') && name.endsWith('.xml')
+      )
+
+      setPptxSlideCount(slideFiles.length || null)
+    } catch (error) {
+      console.error('Błąd liczenia slajdów PPTX:', error)
+      setPptxSlideCount(null)
+    }
+  }, [])
+
+  const refreshSignedUrl = useCallback(async () => {
+    if (!shouldShowPptxViewer) return
+    setPptxStatus('loading')
+    setPptxError(null)
+
+    try {
+      const { data, error } = await supabase.storage
+        .from('trainings')
+        .createSignedUrl(training.file_path, 60 * 60) // 1h
+
+      if (error || !data?.signedUrl) {
+        throw new Error(error?.message || 'Nie udało się wygenerować adresu podglądu.')
+      }
+
+      setPptxDocs([
+        {
+          uri: data.signedUrl,
+          fileType: 'pptx',
+          fileName: training.title
+        }
+      ])
+      setSignedUrlExpiresAt(Date.now() + 60 * 60 * 1000)
+      setPptxStatus('ready')
+      await extractPptxSlideCount(data.signedUrl)
+    } catch (err) {
+      console.error(err)
+      setSignedUrlExpiresAt(null)
+      setPptxError(err instanceof Error ? err.message : 'Nieznany błąd podglądu PPTX.')
+      setPptxStatus('error')
+    }
+  }, [shouldShowPptxViewer, supabase, training.file_path, training.title, extractPptxSlideCount])
+
+  useEffect(() => {
+    if (shouldShowPptxViewer) {
+      refreshSignedUrl()
+    } else {
+      setPptxDocs([])
+      setPptxStatus('idle')
+      setPptxError(null)
+      setSignedUrlExpiresAt(null)
+      setPptxSlideCount(null)
+    }
+  }, [shouldShowPptxViewer, refreshSignedUrl])
+
+  useEffect(() => {
+    if (!signedUrlExpiresAt) return
+
+    const timeout = setTimeout(() => {
+      refreshSignedUrl()
+    }, Math.max(signedUrlExpiresAt - Date.now() - 60_000, 30_000))
+
+    return () => clearTimeout(timeout)
+  }, [signedUrlExpiresAt, refreshSignedUrl])
+
   if (!currentSlide) {
     return (
       <Card>
@@ -265,12 +412,16 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
               <div>
                 <h1 className="text-lg font-semibold">{training.title}</h1>
                 <p className="text-sm text-muted-foreground">
-                  Slajd {currentSlideIndex + 1} z {slides.length}
+                  Slajd {currentSlideIndex + 1} z {totalSlidesCount}
                 </p>
               </div>
             </div>
             
             <div className="flex items-center space-x-4">
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Pozostały czas</p>
+                <p className="text-sm font-semibold">{formatTime(remainingTrainingSeconds)}</p>
+              </div>
               <Badge variant={isCompleted ? 'default' : isPaused ? 'secondary' : 'outline'}>
                 {isCompleted ? 'Ukończone' : isPaused ? 'Wstrzymane' : 'W toku'}
               </Badge>
@@ -279,165 +430,168 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
               </Button>
             </div>
           </div>
-          
-          {/* Progress bar */}
+
+          {/* Remaining time bar */}
           <div className="pb-4">
             <div className="flex justify-between text-sm text-muted-foreground mb-2">
-              <span>Postęp szkolenia</span>
-              <span>{progressPercentage}%</span>
+              <span>Pozostały czas szkolenia</span>
+              <span>{formatTime(remainingTrainingSeconds)}</span>
             </div>
-            <Progress value={progressPercentage} className="h-2" />
+            <Progress value={remainingTimePercentage} className="h-2" />
           </div>
         </div>
       </div>
 
       {/* Main content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid gap-8 lg:grid-cols-4">
-          {/* Slide viewer */}
-          <div className="lg:col-span-3">
-            <Card>
-              <CardContent className="p-0">
-                <div className="relative aspect-video bg-gray-100 dark:bg-gray-800">
-                  <Image
-                    src={currentSlide.image_url}
-                    alt={`Slajd ${currentSlide.slide_number}`}
-                    fill
-                    className="object-contain"
-                    priority
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Side panel */}
-          <div className="space-y-6">
-            {/* Timer */}
-            <Card>
-              <CardHeader className="pb-3">
-                <h3 className="font-semibold flex items-center">
-                  <Clock className="h-4 w-4 mr-2" />
-                  Czas na slajdzie
-                </h3>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {formatTime(timeOnSlide)}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Minimalny czas: {formatTime(currentSlide.min_time_seconds)}
-                </div>
-                {!minTimeReached && (
-                  <div className="mt-2">
-                    <Progress 
-                      value={(timeOnSlide / currentSlide.min_time_seconds) * 100} 
-                      className="h-2"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Poczekaj jeszcze {currentSlide.min_time_seconds - timeOnSlide}s
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Navigation */}
-            <Card>
-              <CardHeader className="pb-3">
-                <h3 className="font-semibold">Nawigacja</h3>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex space-x-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={handlePrevious}
-                    disabled={currentSlideIndex === 0}
-                    className="flex-1"
-                  >
-                    <ChevronLeft className="h-4 w-4 mr-1" />
-                    Poprzedni
-                  </Button>
-                  <Button 
-                    onClick={handleNext}
-                    disabled={!canProceed}
-                    className="flex-1"
-                  >
-                    {currentSlideIndex === slides.length - 1 ? (
-                      <>
-                        <CheckCircle className="h-4 w-4 mr-1" />
-                        Zakończ
-                      </>
-                    ) : (
-                      <>
-                        Następny
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Slide viewer */}
+        <div
+          className="min-h-[calc(100vh-220px)]"
+          style={{ height: 'calc(100vh - 220px)' }}
+        >
+          <Card className="h-full">
+            <CardContent className="p-0 h-full">
+                {shouldShowPptxViewer ? (
+                  <div className="relative h-full min-h-[70vh] bg-gray-100 dark:bg-gray-900">
+                    {pptxStatus === 'loading' && (
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        Ładowanie pliku PPTX...
+                      </div>
                     )}
-                  </Button>
-                </div>
-                
-                <div className="text-xs text-muted-foreground">
-                  {!canProceed && !minTimeReached && (
-                    <p>⏱️ Poczekaj na minimalny czas</p>
-                  )}
-                  {!canProceed && isPaused && (
-                    <p>⏸️ Szkolenie jest wstrzymane</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* Training info */}
-            <Card>
-              <CardHeader className="pb-3">
-                <h3 className="font-semibold">Informacje</h3>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Typ pliku:</span>
-                  <Badge variant="outline" className="text-xs">{training.file_type}</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span>Czas trwania:</span>
-                  <span>{training.duration_minutes} min</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Slajdy:</span>
-                  <span>{training.slides_count}</span>
-                </div>
-                {accessPolicy && (
-                  <div className="pt-2 border-t">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Shield className="h-3 w-3" />
-                      <span className="font-medium">Polityka dostępu:</span>
-                    </div>
-                    <div className="space-y-1">
-                      {accessPolicy.policy_type === 'preview' && (
-                        <Badge variant="secondary" className="text-xs">
-                          <Eye className="h-3 w-3 mr-1" />
-                          Tylko podgląd (pierwsze {slides.length} slajdów)
-                        </Badge>
-                      )}
-                      {accessPolicy.policy_type === 'time_limited' && (
-                        <Badge variant="secondary" className="text-xs">
-                          <Clock className="h-3 w-3 mr-1" />
-                          Dostęp czasowy ({accessPolicy.time_limit_days} dni)
-                        </Badge>
-                      )}
-                      {accessPolicy.policy_type === 'full' && (
-                        <Badge variant="outline" className="text-xs">
-                          <Lock className="h-3 w-3 mr-1" />
-                          Pełny dostęp
-                        </Badge>
-                      )}
+                    {pptxStatus === 'error' && (
+                      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                        <AlertCircle className="h-8 w-8 text-red-500" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Nie udało się wyświetlić pliku PPTX.</p>
+                          <p className="text-sm text-muted-foreground">{pptxError}</p>
+                        </div>
+                        <Button variant="outline" onClick={refreshSignedUrl}>
+                          Spróbuj ponownie
+                        </Button>
+                      </div>
+                    )}
+
+                    {pptxStatus === 'ready' && pptxDocs.length > 0 && (
+                      <DocViewerLazy
+                        documents={pptxDocs}
+                        config={docViewerConfig}
+                        style={{ width: '100%', height: '100%' }}
+                      />
+                    )}
+
+                    {pptxStatus === 'ready' && pptxDocs.length === 0 && (
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        Brak danych do wyświetlenia.
+                      </div>
+                    )}
+
+                    <div className="absolute right-4 top-4 flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs uppercase">
+                        PPTX
+                      </Badge>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        onClick={refreshSignedUrl}
+                        disabled={!canRefreshSignedUrl}
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
+                ) : (
+                  <div className="relative aspect-video bg-gray-100 dark:bg-gray-800">
+                    <Image
+                      src={currentSlide.image_url}
+                      alt={`Slajd ${currentSlide.slide_number}`}
+                      fill
+                      className="object-contain"
+                      priority
+                    />
+                  </div>
                 )}
-              </CardContent>
-            </Card>
-          </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Panels below viewer */}
+        <div className="grid gap-6 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-3">
+              <h3 className="font-semibold flex items-center">
+                <Clock className="h-4 w-4 mr-2" />
+                Czas na slajdzie
+              </h3>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {formatTime(timeOnSlide)}
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Minimalny czas: {formatTime(currentSlide.min_time_seconds)}
+              </div>
+              {!minTimeReached && (
+                <div className="mt-2">
+                  <Progress 
+                    value={(timeOnSlide / currentSlide.min_time_seconds) * 100} 
+                    className="h-2"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Poczekaj jeszcze {currentSlide.min_time_seconds - timeOnSlide}s
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <h3 className="font-semibold">Informacje</h3>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span>Typ pliku:</span>
+                <Badge variant="outline" className="text-xs">{training.file_type}</Badge>
+              </div>
+              <div className="flex justify-between">
+                <span>Czas trwania:</span>
+                <span>{training.duration_minutes} min</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Slajdy:</span>
+                <span>{totalSlidesCount}</span>
+              </div>
+              {accessPolicy && (
+                <div className="pt-2 border-t">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Shield className="h-3 w-3" />
+                    <span className="font-medium">Polityka dostępu:</span>
+                  </div>
+                  <div className="space-y-1">
+                    {accessPolicy.policy_type === 'preview' && (
+                      <Badge variant="secondary" className="text-xs">
+                        <Eye className="h-3 w-3 mr-1" />
+                        Tylko podgląd (pierwsze {totalSlidesCount} slajdów)
+                      </Badge>
+                    )}
+                    {accessPolicy.policy_type === 'time_limited' && (
+                      <Badge variant="secondary" className="text-xs">
+                        <Clock className="h-3 w-3 mr-1" />
+                        Dostęp czasowy ({accessPolicy.time_limit_days} dni)
+                      </Badge>
+                    )}
+                    {accessPolicy.policy_type === 'full' && (
+                      <Badge variant="outline" className="text-xs">
+                        <Lock className="h-3 w-3 mr-1" />
+                        Pełny dostęp
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
 
