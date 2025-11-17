@@ -196,15 +196,29 @@ export async function registerWithInvitation(
     return { success: false, error: 'Nie znaleziono zaproszenia' }
   }
 
-  // Utwórz użytkownika w Supabase Auth
-  const { data: authData, error: authError } = await supabase.auth.signUp({
+  // Używamy Admin API do utworzenia użytkownika z automatycznie potwierdzonym emailem
+  // To eliminuje potrzebę wysyłania drugiego emaila potwierdzającego przez Supabase
+  const { createAdminClient } = await import('@/lib/supabase/admin')
+  const adminClient = createAdminClient()
+
+  // Sprawdź czy użytkownik już istnieje
+  const { data: existingUsers } = await adminClient.auth.admin.listUsers()
+  const existingUser = existingUsers?.users?.find(
+    (u) => u.email?.toLowerCase() === validation.email.toLowerCase()
+  )
+
+  if (existingUser) {
+    return { success: false, error: 'Użytkownik z tym adresem email już istnieje' }
+  }
+
+  // Utwórz użytkownika z automatycznie potwierdzonym emailem
+  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
     email: validation.email,
     password,
-    options: {
-      data: {
-        full_name: fullName,
-        role: validation.role,
-      },
+    email_confirm: true, // Automatycznie potwierdź email - nie wysyłaj drugiego emaila
+    user_metadata: {
+      full_name: fullName,
+      role: validation.role,
     },
   })
 
@@ -218,10 +232,6 @@ export async function registerWithInvitation(
   }
 
   // Aktualizuj profil użytkownika (rolę), ponieważ trigger zawsze ustawia rolę na 'user'
-  // Używamy adminClient do aktualizacji profilu, aby ominąć RLS
-  const { createAdminClient } = await import('@/lib/supabase/admin')
-  const adminClient = createAdminClient()
-  
   const { error: profileError } = await adminClient
     .from('profiles')
     .update({ role: validation.role })
