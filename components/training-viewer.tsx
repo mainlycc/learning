@@ -9,6 +9,14 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -51,7 +59,7 @@ const DocViewerLazy = dynamic(
     ssr: false,
     loading: () => (
       <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-        Ładowanie podglądu PPTX...
+        Ładowanie podglądu dokumentu...
       </div>
     )
   }
@@ -102,11 +110,13 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
   const [slideActivity, setSlideActivity] = useState<{ [key: string]: number }>({})
   const [showInactivityWarning, setShowInactivityWarning] = useState(false)
   const [isCompleted, setIsCompleted] = useState(false)
-  const [pptxDocs, setPptxDocs] = useState<DocViewerProps['documents']>([])
-  const [pptxStatus, setPptxStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [pptxError, setPptxError] = useState<string | null>(null)
+  const [fileDocs, setFileDocs] = useState<DocViewerProps['documents']>([])
+  const [fileStatus, setFileStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [fileError, setFileError] = useState<string | null>(null)
   const [signedUrlExpiresAt, setSignedUrlExpiresAt] = useState<number | null>(null)
   const [pptxSlideCount, setPptxSlideCount] = useState<number | null>(null)
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false)
+  const [isCompleting, setIsCompleting] = useState(false)
   
   const supabase = createClient()
   const timerRef = useRef<NodeJS.Timeout | null>(null)
@@ -115,8 +125,7 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
   const progressIdRef = useRef<string | null>(userProgress?.id || null)
 
   const currentSlide = slides[currentSlideIndex]
-  const minTimeReached = timeOnSlide >= currentSlide?.min_time_seconds
-  const canProceed = minTimeReached && !isPaused
+  const canProceed = !isPaused
   const totalTimeSpentSeconds = useMemo(
     () => Object.values(slideActivity).reduce((sum, time) => sum + time, 0),
     [slideActivity]
@@ -257,9 +266,9 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
   useEffect(() => {
     if (userProgress && userProgress.current_slide > 1) {
       setCurrentSlideIndex(userProgress.current_slide - 1)
-      setTimeOnSlide(currentSlide?.min_time_seconds || 0)
+      setTimeOnSlide(0)
     }
-  }, [userProgress, currentSlide])
+  }, [userProgress])
 
   const handlePrevious = () => {
     if (currentSlideIndex > 0) {
@@ -285,14 +294,74 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
     setIsPaused(!isPaused)
   }
 
+  const handleCompleteTraining = async () => {
+    setIsCompleting(true)
+    try {
+      setIsCompleted(true)
+      setIsPaused(true) // Zatrzymaj timer
+
+      // Zapisz postęp jako ukończony
+      const totalTime = Object.values(slideActivity).reduce((sum, time) => sum + time, 0)
+      
+      if (!progressIdRef.current) {
+        // Utwórz nowy postęp
+        const user = (await supabase.auth.getUser()).data.user
+        if (!user) {
+          throw new Error('Brak sesji użytkownika')
+        }
+
+        const { data: newProgress } = await supabase
+          .from('user_training_progress')
+          .insert({
+            user_id: user.id,
+            training_id: training.id,
+            current_slide: totalSlidesCount,
+            total_time_seconds: totalTime,
+            status: 'completed',
+            completed_at: new Date().toISOString()
+          })
+          .select()
+          .single()
+
+        if (newProgress) {
+          progressIdRef.current = newProgress.id
+        }
+      } else {
+        // Aktualizuj istniejący postęp
+        await supabase
+          .from('user_training_progress')
+          .update({
+            current_slide: totalSlidesCount,
+            total_time_seconds: totalTime,
+            status: 'completed',
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', progressIdRef.current)
+      }
+
+      setShowCompleteDialog(false)
+      
+      // Przekieruj do strony szkolenia po zakończeniu
+      setTimeout(() => {
+        window.location.href = `/dashboard/trainings/${training.id}`
+      }, 2000)
+    } catch (error) {
+      console.error('Błąd podczas kończenia szkolenia:', error)
+      setIsCompleted(false)
+      setIsPaused(false)
+    } finally {
+      setIsCompleting(false)
+    }
+  }
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
-  const shouldShowPptxViewer = training.file_type === 'PPTX' && Boolean(training.file_path)
-  const canRefreshSignedUrl = shouldShowPptxViewer && pptxStatus !== 'loading'
+  const shouldShowFileViewer = (training.file_type === 'PPTX' || training.file_type === 'PDF') && Boolean(training.file_path)
+  const canRefreshSignedUrl = shouldShowFileViewer && fileStatus !== 'loading'
 
   const docViewerConfig = useMemo<DocViewerProps['config']>(() => ({
     header: {
@@ -326,9 +395,9 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
   }, [])
 
   const refreshSignedUrl = useCallback(async () => {
-    if (!shouldShowPptxViewer) return
-    setPptxStatus('loading')
-    setPptxError(null)
+    if (!shouldShowFileViewer) return
+    setFileStatus('loading')
+    setFileError(null)
 
     try {
       const { data, error } = await supabase.storage
@@ -339,35 +408,41 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
         throw new Error(error?.message || 'Nie udało się wygenerować adresu podglądu.')
       }
 
-      setPptxDocs([
+      const fileType = training.file_type === 'PDF' ? 'pdf' : 'pptx'
+      setFileDocs([
         {
           uri: data.signedUrl,
-          fileType: 'pptx',
+          fileType: fileType,
           fileName: training.title
         }
       ])
       setSignedUrlExpiresAt(Date.now() + 60 * 60 * 1000)
-      setPptxStatus('ready')
-      await extractPptxSlideCount(data.signedUrl)
+      setFileStatus('ready')
+      
+      // Dla PPTX liczymy slajdy, dla PDF nie ma potrzeby
+      if (training.file_type === 'PPTX') {
+        await extractPptxSlideCount(data.signedUrl)
+      }
     } catch (err) {
       console.error(err)
       setSignedUrlExpiresAt(null)
-      setPptxError(err instanceof Error ? err.message : 'Nieznany błąd podglądu PPTX.')
-      setPptxStatus('error')
+      const fileTypeName = training.file_type === 'PDF' ? 'PDF' : 'PPTX'
+      setFileError(err instanceof Error ? err.message : `Nieznany błąd podglądu ${fileTypeName}.`)
+      setFileStatus('error')
     }
-  }, [shouldShowPptxViewer, supabase, training.file_path, training.title, extractPptxSlideCount])
+  }, [shouldShowFileViewer, supabase, training.file_path, training.title, training.file_type, extractPptxSlideCount])
 
   useEffect(() => {
-    if (shouldShowPptxViewer) {
+    if (shouldShowFileViewer) {
       refreshSignedUrl()
     } else {
-      setPptxDocs([])
-      setPptxStatus('idle')
-      setPptxError(null)
+      setFileDocs([])
+      setFileStatus('idle')
+      setFileError(null)
       setSignedUrlExpiresAt(null)
       setPptxSlideCount(null)
     }
-  }, [shouldShowPptxViewer, refreshSignedUrl])
+  }, [shouldShowFileViewer, refreshSignedUrl])
 
   useEffect(() => {
     if (!signedUrlExpiresAt) return
@@ -425,9 +500,22 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
               <Badge variant={isCompleted ? 'default' : isPaused ? 'secondary' : 'outline'}>
                 {isCompleted ? 'Ukończone' : isPaused ? 'Wstrzymane' : 'W toku'}
               </Badge>
-              <Button variant="outline" size="sm" onClick={handlePause}>
-                {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-              </Button>
+              {!isCompleted && (
+                <>
+                  <Button variant="outline" size="sm" onClick={handlePause}>
+                    {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                  </Button>
+                  <Button 
+                    variant="default" 
+                    size="sm" 
+                    onClick={() => setShowCompleteDialog(true)}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Zakończ kurs
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 
@@ -451,20 +539,20 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
         >
           <Card className="h-full">
             <CardContent className="p-0 h-full">
-                {shouldShowPptxViewer ? (
-                  <div className="relative h-full min-h-[70vh] bg-gray-100 dark:bg-gray-900">
-                    {pptxStatus === 'loading' && (
+                {shouldShowFileViewer ? (
+                  <div className="relative h-full min-h-[70vh] bg-gray-100 dark:bg-gray-900 overflow-auto">
+                    {fileStatus === 'loading' && (
                       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                        Ładowanie pliku PPTX...
+                        Ładowanie pliku {training.file_type}...
                       </div>
                     )}
 
-                    {pptxStatus === 'error' && (
+                    {fileStatus === 'error' && (
                       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
                         <AlertCircle className="h-8 w-8 text-red-500" />
                         <div className="space-y-1">
-                          <p className="text-sm font-medium">Nie udało się wyświetlić pliku PPTX.</p>
-                          <p className="text-sm text-muted-foreground">{pptxError}</p>
+                          <p className="text-sm font-medium">Nie udało się wyświetlić pliku {training.file_type}.</p>
+                          <p className="text-sm text-muted-foreground">{fileError}</p>
                         </div>
                         <Button variant="outline" onClick={refreshSignedUrl}>
                           Spróbuj ponownie
@@ -472,15 +560,15 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
                       </div>
                     )}
 
-                    {pptxStatus === 'ready' && pptxDocs.length > 0 && (
+                    {fileStatus === 'ready' && fileDocs.length > 0 && (
                       <DocViewerLazy
-                        documents={pptxDocs}
+                        documents={fileDocs}
                         config={docViewerConfig}
                         style={{ width: '100%', height: '100%' }}
                       />
                     )}
 
-                    {pptxStatus === 'ready' && pptxDocs.length === 0 && (
+                    {fileStatus === 'ready' && fileDocs.length === 0 && (
                       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                         Brak danych do wyświetlenia.
                       </div>
@@ -488,7 +576,7 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
 
                     <div className="absolute right-4 top-4 flex items-center gap-2">
                       <Badge variant="secondary" className="text-xs uppercase">
-                        PPTX
+                        {training.file_type}
                       </Badge>
                       <Button
                         size="icon"
@@ -528,20 +616,6 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
               <div className="text-2xl font-bold">
                 {formatTime(timeOnSlide)}
               </div>
-              <div className="text-sm text-muted-foreground">
-                Minimalny czas: {formatTime(currentSlide.min_time_seconds)}
-              </div>
-              {!minTimeReached && (
-                <div className="mt-2">
-                  <Progress 
-                    value={(timeOnSlide / currentSlide.min_time_seconds) * 100} 
-                    className="h-2"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Poczekaj jeszcze {currentSlide.min_time_seconds - timeOnSlide}s
-                  </p>
-                </div>
-              )}
             </CardContent>
           </Card>
 
@@ -621,6 +695,35 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
           </Card>
         </div>
       )}
+
+      {/* Complete training dialog */}
+      <Dialog open={showCompleteDialog} onOpenChange={setShowCompleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Zakończyć kurs?</DialogTitle>
+            <DialogDescription>
+              Czy na pewno chcesz zakończyć kurs &quot;{training.title}&quot;? 
+              Po zakończeniu kurs zostanie oznaczony jako ukończony i zostaniesz przekierowany do strony szkolenia.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCompleteDialog(false)}
+              disabled={isCompleting}
+            >
+              Anuluj
+            </Button>
+            <Button
+              onClick={handleCompleteTraining}
+              disabled={isCompleting}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isCompleting ? 'Zapisywanie...' : 'Tak, zakończ kurs'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

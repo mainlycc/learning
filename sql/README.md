@@ -42,8 +42,21 @@ W **Supabase Dashboard → Storage**, utwórz następujące buckety:
 4. 04_create_triggers.sql
 5. 05_create_rls_policies.sql
 6. 06_create_storage_policies.sql
-7. 07_sample_data.sql (opcjonalne - tylko jeśli chcesz dane testowe)
+7. 10_create_training_users_table.sql
+8. 11_create_training_users_indexes.sql
+9. 12_create_training_users_rls.sql
+10. 13_update_trainings_access_rls.sql
+11. 14_fix_missing_unique_constraints.sql (KRYTYCZNE!)
+12. 16_create_training_access_function.sql
+13. 17_fix_trainings_access_rls.sql
+14. 19_add_training_id_to_notifications.sql
+15. 20_fix_notifications_rls.sql
+16. 07_sample_data.sql (opcjonalne - tylko jeśli chcesz dane testowe)
 ```
+
+**UWAGA:** 
+- Skrypty 10-17 są wymagane dla poprawnego działania kontroli dostępu do szkoleń
+- Skrypty 19-20 są wymagane dla poprawnego filtrowania powiadomień według dostępu do szkoleń
 
 ### 4. Konfiguracja pierwszego administratora
 
@@ -88,6 +101,8 @@ WHERE email = 'twoj-email@example.com';
 - **`user_has_role()`** - sprawdzanie uprawnień użytkownika
 - **`calculate_training_progress()`** - obliczanie postępu szkolenia
 - **`generate_monthly_report()`** - generowanie raportów miesięcznych
+- **`training_has_assignments()`** - sprawdzanie czy szkolenie ma przypisanych użytkowników (używane w RLS)
+- **`create_notification()`** - tworzenie powiadomień (obsługuje opcjonalny parametr training_id)
 
 ### Bezpieczeństwo:
 
@@ -132,6 +147,19 @@ System obsługuje 8 typów pytań:
 ### Problem z RLS policies
 - Sprawdź czy wszystkie tabele mają włączone RLS
 - Upewnij się, że polityki zostały utworzone poprawnie
+
+### Problem z kontrolą dostępu do szkoleń
+- Upewnij się, że uruchomiłeś wszystkie skrypty 10-17 w kolejności
+- Uruchom skrypt weryfikacyjny: `18_verify_constraints.sql` aby sprawdzić czy wszystko jest poprawnie skonfigurowane
+- Sprawdź czy UNIQUE constraint na `training_users` istnieje (krytyczne!)
+- Sprawdź czy funkcja `training_has_assignments()` istnieje
+- Sprawdź czy RLS policy "Users can view assigned or public trainings" używa funkcji pomocniczej
+
+### Problem z powiadomieniami dotyczącymi szkoleń
+- Upewnij się, że uruchomiłeś skrypty 19-20
+- Sprawdź czy kolumna `training_id` istnieje w tabeli `notifications`
+- Sprawdź czy RLS policy "Users can view accessible notifications" jest aktywna
+- Sprawdź czy trigger `notify_new_training()` tworzy powiadomienia tylko dla przypisanych użytkowników
 
 ## Następne kroki
 

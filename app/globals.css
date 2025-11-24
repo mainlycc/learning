@@ -133,3 +133,19 @@
   display: flex;
   flex: 1;
 }
+
+/* PDF viewer scroll support */
+#react-doc-viewer #pdf-renderer,
+#react-doc-viewer #pdf-renderer > div,
+#react-doc-viewer #pdf-renderer iframe {
+  height: 100% !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+/* Ensure PDF container allows scrolling */
+#react-doc-viewer .pdf-viewer-container {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}

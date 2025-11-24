@@ -17,6 +17,14 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+
+  // Zwiększ limit rozmiaru body dla Server Actions (domyślnie 1 MB)
+  // Potrzebne do uploadu plików PDF/PPTX do 40 MB
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
 };
 
 export default nextConfig;

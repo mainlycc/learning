@@ -100,18 +100,35 @@ CREATE TRIGGER on_test_completed
   FOR EACH ROW EXECUTE FUNCTION log_test_completed();
 
 -- Trigger do automatycznego tworzenia powiadomienia o nowym szkoleniu
+-- Tworzy powiadomienia tylko dla użytkowników przypisanych do szkolenia
+-- lub dla wszystkich, jeśli szkolenie nie ma przypisań (publiczne)
 CREATE OR REPLACE FUNCTION notify_new_training()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Utwórz powiadomienie dla wszystkich aktywnych użytkowników
-  INSERT INTO public.notifications (user_id, type, title, message)
-  SELECT 
-    p.id,
-    'new_training',
-    'Nowe szkolenie dostępne',
-    'Dostępne jest nowe szkolenie: ' || NEW.title
-  FROM public.profiles p
-  WHERE p.role IN ('user', 'admin', 'super_admin');
+  -- Sprawdź czy szkolenie ma przypisanych użytkowników
+  IF public.training_has_assignments(NEW.id) THEN
+    -- Szkolenie ma przypisanych użytkowników - powiadom tylko ich
+    INSERT INTO public.notifications (user_id, type, title, message, training_id)
+    SELECT 
+      tu.user_id,
+      'new_training',
+      'Nowe szkolenie dostępne',
+      'Dostępne jest nowe szkolenie: ' || NEW.title,
+      NEW.id
+    FROM public.training_users tu
+    WHERE tu.training_id = NEW.id;
+  ELSE
+    -- Szkolenie nie ma przypisań - powiadom wszystkich aktywnych użytkowników
+    INSERT INTO public.notifications (user_id, type, title, message, training_id)
+    SELECT 
+      p.id,
+      'new_training',
+      'Nowe szkolenie dostępne',
+      'Dostępne jest nowe szkolenie: ' || NEW.title,
+      NEW.id
+    FROM public.profiles p
+    WHERE p.role IN ('user', 'admin', 'super_admin');
+  END IF;
   
   RETURN NEW;
 END;

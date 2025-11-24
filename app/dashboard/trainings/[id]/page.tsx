@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { BookOpen, Clock, Play, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-react'
+import { BookOpen, Clock, Play, CheckCircle, ArrowLeft, RefreshCw, FileQuestion } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import JSZip from 'jszip'
@@ -22,6 +22,15 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
   
   if (!user) return null
 
+  // Sprawdź czy użytkownik jest adminem
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin'
+
   // Pobierz szczegóły szkolenia
   const { data: training } = await supabase
     .from('trainings')
@@ -32,6 +41,53 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
 
   if (!training) {
     notFound()
+  }
+
+  // Sprawdź dostęp dla zwykłych użytkowników (admini mają dostęp do wszystkiego)
+  if (!isAdmin) {
+    // Sprawdź czy kurs ma przypisanych użytkowników
+    const { data: assignedUsers } = await supabase
+      .from('training_users')
+      .select('user_id')
+      .eq('training_id', id)
+
+    // Jeśli kurs ma przypisanych użytkowników, sprawdź czy aktualny użytkownik jest wśród nich
+    if (assignedUsers && assignedUsers.length > 0) {
+      const isAssigned = assignedUsers.some(au => au.user_id === user.id)
+      if (!isAssigned) {
+        // Użytkownik nie ma dostępu do tego kursu
+        return (
+          <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+            <div className="max-w-md mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-yellow-100 dark:bg-yellow-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                  Brak dostępu
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-4">
+                  Nie masz dostępu do tego szkolenia. To szkolenie jest dostępne tylko dla przypisanych użytkowników.
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-500">
+                  Skontaktuj się z administratorem, aby uzyskać dostęp.
+                </p>
+                <div className="mt-6">
+                  <Button asChild>
+                    <Link href="/dashboard/trainings">
+                      Powrót do listy szkoleń
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+    }
+    // Jeśli kurs nie ma przypisanych użytkowników, dostęp dla wszystkich (zgodnie z RLS)
   }
 
   // Pobierz postęp użytkownika
@@ -84,6 +140,15 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
   const remainingSlides = userProgress && slideCount > 0
     ? Math.max(slideCount - userProgress.current_slide, 0)
     : null
+
+  // Sprawdź czy istnieje test dla tego szkolenia
+  const { data: test } = await supabase
+    .from('tests')
+    .select('id, title')
+    .eq('training_id', id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
   const getStatusBadge = () => {
     if (isCompleted) {
@@ -201,6 +266,14 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
                     )}
                   </Link>
                 </Button>
+                {test && (
+                  <Button asChild size="lg" variant="outline">
+                    <Link href={`/dashboard/trainings/${training.id}/test`}>
+                      <FileQuestion className="mr-2 h-4 w-4" />
+                      Test
+                    </Link>
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -242,6 +315,23 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
                   </p>
                 )}
               </div>
+
+              {test && (
+                <div className="p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 text-sm">
+                  <p className="font-medium flex items-center gap-2 mb-1">
+                    <FileQuestion className="h-4 w-4" />
+                    Test dostępny
+                  </p>
+                  <p className="text-muted-foreground mb-2">
+                    Dla tego szkolenia dostępny jest test: <strong>{test.title}</strong>
+                  </p>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/dashboard/trainings/${training.id}/test`}>
+                      Przejdź do testu
+                    </Link>
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 

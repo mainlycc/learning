@@ -143,7 +143,11 @@ export default async function ReportsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {new Set([...userProgress, ...testAttempts].map(item => item.profiles.email)).size}
+              {new Set(
+                [...userProgress, ...testAttempts]
+                  .map(item => item.profiles?.email)
+                  .filter((email): email is string => !!email)
+              ).size}
             </div>
             <p className="text-xs text-muted-foreground">
               w systemie

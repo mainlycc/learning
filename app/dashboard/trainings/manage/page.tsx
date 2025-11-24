@@ -1,10 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
-import { notFound, redirect } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import {
   Table,
@@ -14,49 +11,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import TrainingUpload from '@/components/admin/TrainingUpload'
-import TestCreator from '@/components/admin/TestCreator'
-import { SlideManager } from '@/components/admin/SlideManager'
 import { EditTrainingDialog } from '@/components/admin/EditTrainingDialog'
 import { DeleteTrainingDialog } from '@/components/admin/DeleteTrainingDialog'
 import { toggleTrainingStatus } from './actions'
-import { Power, PowerOff } from 'lucide-react'
+import { Power, PowerOff, Plus, BarChart3 } from 'lucide-react'
+import Link from 'next/link'
 
-async function createTraining(formData: FormData): Promise<void> {
-  'use server'
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return
-
-  const title = String(formData.get('title') || '').trim()
-  const description = String(formData.get('description') || '').trim() || null
-  const durationMinutes = Number(formData.get('duration_minutes') || 0)
-  const fileType = String(formData.get('file_type') || 'PDF') as 'PDF' | 'PPTX'
-  const isActive = String(formData.get('is_active') || 'true') === 'true'
-
-  if (!title || !durationMinutes) {
-    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Niepoprawne dane formularza'))
-  }
-
-  const { error } = await supabase
-    .from('trainings')
-    .insert({
-      title,
-      description,
-      duration_minutes: durationMinutes,
-      file_path: '', // upload pliku zostanie dodany później
-      file_type: fileType,
-      slides_count: 0,
-      created_by: user.id,
-      is_active: isActive,
-    })
-
-  if (error) {
-    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Błąd zapisu szkolenia'))
-  }
-
-  redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Zapisano szkolenie.'))
-}
 
 export default async function TrainingsManagePage() {
   const supabase = await createClient()
@@ -91,9 +51,17 @@ export default async function TrainingsManagePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Zarządzanie szkoleniami</h1>
-        <p className="text-muted-foreground">Dodawaj, edytuj i zarządzaj szkoleniami oraz testami.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Zarządzanie szkoleniami</h1>
+          <p className="text-muted-foreground">Dodawaj, edytuj i zarządzaj szkoleniami oraz testami.</p>
+        </div>
+        <Button asChild>
+          <Link href="/dashboard/trainings/manage/new">
+            <Plus className="h-4 w-4 mr-2" />
+            Dodaj szkolenie
+          </Link>
+        </Button>
       </div>
 
       {/* Tabela szkoleń */}
@@ -176,6 +144,16 @@ export default async function TrainingsManagePage() {
                           >
                             <a href={`/dashboard/trainings/${t.id}/test`}>Test</a>
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            asChild
+                          >
+                            <Link href={`/dashboard/trainings/manage/wyniki?trainingId=${t.id}`}>
+                              <BarChart3 className="h-4 w-4 mr-1" />
+                              Wyniki
+                            </Link>
+                          </Button>
                           <EditTrainingDialog training={{
                             id: t.id,
                             title: t.title,
@@ -200,75 +178,6 @@ export default async function TrainingsManagePage() {
         </CardContent>
       </Card>
 
-      {/* Dodawanie szkolenia i testów pod listą */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Dodaj szkolenie</CardTitle>
-            <CardDescription>Utwórz podstawowe metadane. Upload pliku dodamy w kolejnym kroku.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form action={createTraining} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="title">Tytuł</Label>
-                <Input id="title" name="title" required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Opis</Label>
-                <Input id="description" name="description" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="duration_minutes">Nominalny czas (min)</Label>
-                <Input id="duration_minutes" name="duration_minutes" type="number" min={1} required />
-              </div>
-              <div className="space-y-2">
-                <Label>Typ pliku</Label>
-                <Select name="file_type" defaultValue="PDF">
-                  <SelectTrigger>
-                    <SelectValue placeholder="Wybierz typ" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PDF">PDF</SelectItem>
-                    <SelectItem value="PPTX">PPTX</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <input type="hidden" name="is_active" value="true" />
-              <div className="flex justify-end gap-2">
-                <Button type="submit">Zapisz szkolenie</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Konfiguracja testów</CardTitle>
-            <CardDescription>Utwórz test i dodawaj pytania.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TestCreator />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Dodatkowe narzędzia: upload i slajdy */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Narzędzia szkolenia</CardTitle>
-          <CardDescription>Wgrywanie plików i zarządzanie slajdami</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-6">
-            <h3 className="font-medium mb-2">Wgrywanie pliku do szkolenia</h3>
-            <TrainingUpload />
-          </div>
-          <div className="mb-6">
-            <h3 className="font-medium mb-2">Zarządzanie slajdami</h3>
-            <SlideManager />
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }

@@ -95,6 +95,15 @@ CREATE TABLE public.training_slides (
   CONSTRAINT training_slides_pkey PRIMARY KEY (id),
   CONSTRAINT training_slides_training_id_fkey FOREIGN KEY (training_id) REFERENCES public.trainings(id)
 );
+CREATE TABLE public.training_users (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  training_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT training_users_pkey PRIMARY KEY (id),
+  CONSTRAINT training_users_training_id_fkey FOREIGN KEY (training_id) REFERENCES public.trainings(id),
+  CONSTRAINT training_users_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
 CREATE TABLE public.trainings (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   title text NOT NULL,
@@ -109,6 +118,19 @@ CREATE TABLE public.trainings (
   is_active boolean DEFAULT true,
   CONSTRAINT trainings_pkey PRIMARY KEY (id),
   CONSTRAINT trainings_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.tutor_invitations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  email text NOT NULL,
+  token uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+  status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'accepted'::text, 'expired'::text])),
+  created_by uuid NOT NULL,
+  expires_at timestamp with time zone NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  role text NOT NULL DEFAULT 'user'::text CHECK (role = ANY (ARRAY['user'::text, 'admin'::text, 'super_admin'::text])),
+  CONSTRAINT tutor_invitations_pkey PRIMARY KEY (id),
+  CONSTRAINT tutor_invitations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.user_slide_activity (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

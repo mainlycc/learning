@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { BookOpen, Clock, Play, CheckCircle } from 'lucide-react'
+import { BookOpen, Clock, Play, CheckCircle, FileQuestion } from 'lucide-react'
 import Link from 'next/link'
 import type { Database } from '@/lib/types/database'
 import JSZip from 'jszip'
@@ -20,7 +20,18 @@ export default async function TrainingsPage() {
   
   if (!user) return null
 
-  // Pobierz wszystkie aktywne szkolenia
+  // Sprawdź czy użytkownik jest adminem
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin'
+
+  // Pobierz szkolenia - RLS policy automatycznie filtruje dostęp
+  // Dla adminów: wszystkie szkolenia
+  // Dla zwykłych użytkowników: tylko przypisane lub publiczne (bez przypisań)
   const { data: trainings } = await supabase
     .from('trainings')
     .select('*')
@@ -34,6 +45,17 @@ export default async function TrainingsPage() {
     .eq('user_id', user.id)
 
   const trainingIds = trainings?.map((t) => t.id) ?? []
+
+  // Pobierz testy dla wszystkich szkoleń
+  const { data: tests } = await supabase
+    .from('tests')
+    .select('id, training_id, title')
+    .in('training_id', trainingIds)
+
+  const testsByTrainingId = tests?.reduce<Record<string, { id: string; title: string }>>((acc, test) => {
+    acc[test.training_id] = { id: test.id, title: test.title }
+    return acc
+  }, {}) ?? {}
 
   let slidesCountMap: Record<string, number> = {}
   if (trainingIds.length > 0) {
@@ -146,6 +168,13 @@ export default async function TrainingsPage() {
                     ? `${training.resolvedSlidesCount} slajdów`
                     : 'Brak danych o slajdach'}
                 </div>
+
+                {testsByTrainingId[training.id] && (
+                  <div className="flex items-center text-sm text-blue-600 dark:text-blue-400">
+                    <FileQuestion className="mr-2 h-4 w-4" />
+                    Test dostępny
+                  </div>
+                )}
 
                 {isInProgress && (
                   <div className="space-y-2">

@@ -11,10 +11,14 @@ import { Card, CardContent } from '@/components/ui/card'
 type Training = { id: string; title: string }
 type TestRow = { id: string; title: string }
 
-export default function TestCreator() {
+interface TestCreatorProps {
+  initialTrainingId?: string
+}
+
+export default function TestCreator({ initialTrainingId }: TestCreatorProps) {
   const supabase = createClient()
   const [trainings, setTrainings] = useState<Training[]>([])
-  const [selectedTrainingId, setSelectedTrainingId] = useState('')
+  const [selectedTrainingId, setSelectedTrainingId] = useState(initialTrainingId || '')
 
   const [testTitle, setTestTitle] = useState('Test końcowy')
   const [passThreshold, setPassThreshold] = useState(80)
@@ -43,9 +47,13 @@ export default function TestCreator() {
         .select('id, title')
         .order('title', { ascending: true })
       setTrainings(data || [])
+      // Jeśli mamy initialTrainingId, ustaw go po załadowaniu szkoleń
+      if (initialTrainingId && data?.some(t => t.id === initialTrainingId)) {
+        setSelectedTrainingId(initialTrainingId)
+      }
     }
     loadTrainings()
-  }, [supabase])
+  }, [supabase, initialTrainingId])
 
   const loadTests = useCallback(async (trainingId: string, preferredTestId?: string) => {
     if (!trainingId) {
@@ -120,6 +128,18 @@ export default function TestCreator() {
     if (!selectedTestId) return
     setAddingQuestion(true)
     try {
+      // Pobierz maksymalny order_number dla tego testu
+      const { data: existingQuestions } = await supabase
+        .from('test_questions')
+        .select('order_number')
+        .eq('test_id', selectedTestId)
+        .order('order_number', { ascending: false })
+        .limit(1)
+
+      const nextOrderNumber = existingQuestions && existingQuestions.length > 0
+        ? existingQuestions[0].order_number + 1
+        : 1
+
       const { data: q, error: qErr } = await supabase
         .from('test_questions')
         .insert({
@@ -127,7 +147,7 @@ export default function TestCreator() {
           question_type: questionType,
           question_text: questionText,
           points,
-          order_number: Date.now(),
+          order_number: nextOrderNumber,
         })
         .select('id')
         .single()
@@ -166,7 +186,11 @@ export default function TestCreator() {
         <CardContent className="p-4 space-y-4">
           <div className="space-y-2">
             <Label>Szkolenie</Label>
-            <Select value={selectedTrainingId} onValueChange={setSelectedTrainingId}>
+            <Select 
+              value={selectedTrainingId} 
+              onValueChange={setSelectedTrainingId}
+              disabled={!!initialTrainingId}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Wybierz szkolenie" />
               </SelectTrigger>
@@ -176,6 +200,11 @@ export default function TestCreator() {
                 ))}
               </SelectContent>
             </Select>
+            {initialTrainingId && (
+              <p className="text-xs text-muted-foreground">
+                Szkolenie jest przypisane do tego testu
+              </p>
+            )}
           </div>
 
           {selectedTrainingId ? (

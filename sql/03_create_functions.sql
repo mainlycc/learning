@@ -53,11 +53,13 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Funkcja do tworzenia powiadomienia
+-- Obsługuje opcjonalny parametr training_id dla powiadomień związanych ze szkoleniami
 CREATE OR REPLACE FUNCTION public.create_notification(
   p_user_id UUID,
   p_type TEXT,
   p_title TEXT,
-  p_message TEXT
+  p_message TEXT,
+  p_training_id UUID DEFAULT NULL
 )
 RETURNS UUID AS $$
 DECLARE
@@ -67,12 +69,14 @@ BEGIN
     user_id,
     type,
     title,
-    message
+    message,
+    training_id
   ) VALUES (
     p_user_id,
     p_type,
     p_title,
-    p_message
+    p_message,
+    p_training_id
   ) RETURNING id INTO notification_id;
   
   RETURN notification_id;

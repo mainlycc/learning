@@ -393,6 +393,40 @@ export interface Database {
           }
         ]
       }
+      training_users: {
+        Row: {
+          id: string
+          training_id: string
+          user_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          training_id: string
+          user_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          training_id?: string
+          user_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_users_training_id_fkey"
+            columns: ["training_id"]
+            referencedRelation: "trainings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_users_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       audit_logs: {
         Row: {
           id: string
