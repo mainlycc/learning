@@ -18,7 +18,7 @@ export function TrainingFileUpload({ onFileSelect, fileType, value }: TrainingFi
     <div className="space-y-2">
       <Label>Plik szkolenia ({fileType}) *</Label>
       <div className="max-w-md">
-        <UploadDropzone
+        <UploadDropzone 
           onFileSelect={onFileSelect}
           accept={accept}
           maxFileSize="40MB"
