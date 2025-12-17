@@ -7,7 +7,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { FileUp, CheckCircle2 } from 'lucide-react'
+import { FileUp, CheckCircle2, MoreVertical, Trash2 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { TrainingFileUpload } from '@/components/training-file-upload'
 import { createTraining, updateTrainingWithFile } from './actions'
 import Link from 'next/link'
@@ -105,24 +111,67 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [showSuccessDialog, setShowSuccessDialog] = useState(false)
   const [createdTrainingId, setCreatedTrainingId] = useState<string | null>(trainingData?.id || null)
+  const [activeTab, setActiveTab] = useState<string>('')
+  
+  // Ustaw aktywną zakładkę po załadowaniu plików
+  useEffect(() => {
+    if (files.length > 0 && !activeTab) {
+      setActiveTab('new-0')
+    } else if (existingFiles.length > 0 && !activeTab && files.length === 0) {
+      setActiveTab('existing-0')
+    }
+  }, [files.length, existingFiles.length, activeTab])
 
   // Załaduj istniejące pliki szkolenia
   useEffect(() => {
     const loadExistingFiles = async () => {
       if (isEditMode && trainingData?.id) {
-        const { data: trainingFiles, error } = await supabase
-          .from('training_files')
-          .select('id, file_path, file_type, file_name, file_size')
-          .eq('training_id', trainingData.id)
-          .order('created_at', { ascending: true })
+        try {
+          const { data: trainingFiles, error } = await supabase
+            .from('training_files')
+            .select('id, file_path, file_type, file_name, file_size')
+            .eq('training_id', trainingData.id)
+            .order('created_at', { ascending: true })
 
-        if (!error && trainingFiles) {
-          setExistingFiles(trainingFiles)
+          if (error) {
+            console.error('Błąd ładowania istniejących plików:', error)
+          }
+
+          if (trainingFiles && trainingFiles.length > 0) {
+            setExistingFiles(trainingFiles)
+            // Ustaw aktywną zakładkę na pierwszy istniejący plik
+            if (files.length === 0) {
+              setActiveTab('existing-0')
+            }
+          } else if (trainingData.file_path && trainingData.file_type) {
+            // Fallback dla starych szkoleń z file_path w tabeli trainings
+            const fileName = trainingData.file_path.split('/').pop() || 'Plik szkolenia'
+            setExistingFiles([{
+              id: `legacy-${trainingData.id}`,
+              file_path: trainingData.file_path,
+              file_type: trainingData.file_type,
+              file_name: fileName,
+              file_size: null
+            }])
+            // Ustaw aktywną zakładkę na pierwszy istniejący plik
+            if (files.length === 0) {
+              setActiveTab('existing-0')
+            }
+          } else {
+            setExistingFiles([])
+          }
+        } catch (err) {
+          console.error('Błąd podczas ładowania plików:', err)
+          setExistingFiles([])
         }
+      } else {
+        // Wyczyść istniejące pliki jeśli nie jesteśmy w trybie edycji
+        setExistingFiles([])
       }
     }
     loadExistingFiles()
-  }, [isEditMode, trainingData?.id, supabase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode, trainingData?.id, trainingData?.file_path, trainingData?.file_type])
 
   // Ustaw użytkowników z initialUsers jeśli są dostępne
   useEffect(() => {
@@ -444,6 +493,51 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
     }
   }
 
+  // Usuń istniejący plik
+  const handleDeleteExistingFile = async (fileId: string, filePath: string) => {
+    if (!confirm('Czy na pewno chcesz usunąć ten plik?')) return
+
+    try {
+      // Usuń plik z storage
+      const { error: storageError } = await supabase.storage
+        .from('trainings')
+        .remove([filePath])
+
+      if (storageError) {
+        console.error('Błąd usuwania pliku z storage:', storageError)
+        // Kontynuuj nawet jeśli usunięcie z storage się nie powiodło
+      }
+
+      // Usuń rekord z bazy danych tylko jeśli to nie jest legacy plik
+      if (!fileId.startsWith('legacy-')) {
+        const { error: dbError } = await supabase
+          .from('training_files')
+          .delete()
+          .eq('id', fileId)
+
+        if (dbError) {
+          setError(dbError.message || 'Błąd usuwania pliku z bazy danych')
+          return
+        }
+      }
+
+      // Usuń plik z listy
+      setExistingFiles(prev => prev.filter(f => f.id !== fileId))
+    } catch (err) {
+      console.error('Błąd podczas usuwania pliku:', err)
+      setError('Nie udało się usunąć pliku')
+    }
+  }
+
+  // Usuń nowy plik (jeszcze nie zapisany)
+  const handleRemoveNewFile = (index: number) => {
+    // Revoke URL jeśli istnieje
+    const file = files[index]
+    if (file) {
+      // URL zostanie automatycznie zwolniony przez React cleanup
+    }
+    setFiles(prev => prev.filter((_, i) => i !== index))
+  }
 
   return (
     <div className="space-y-6">
@@ -576,6 +670,43 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
               value={files}
                 required={!isEditMode}
               />
+              
+              {/* Wyświetl istniejące pliki w trybie edycji */}
+              {isEditMode && existingFiles.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <Label className="text-sm">Załączone pliki ({existingFiles.length})</Label>
+                  <div className="space-y-2">
+                    {existingFiles.map((file) => (
+                      <Card key={file.id} className="p-3">
+                        <CardContent className="p-0">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{file.file_name}</p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Badge variant="outline" className="text-xs">
+                                  {file.file_type}
+                                </Badge>
+                                {file.file_size && (
+                                  <span>
+                                    {file.file_size < 1024 
+                                      ? file.file_size + ' B' 
+                                      : file.file_size < 1024 * 1024 
+                                        ? (file.file_size / 1024).toFixed(1) + ' KB'
+                                        : (file.file_size / (1024 * 1024)).toFixed(1) + ' MB'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Te pliki są już załączone do szkolenia. Możesz dodać nowe pliki powyżej.
+                  </p>
+                </div>
+              )}
           </div>
 
           {error && (
@@ -604,12 +735,72 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
             <div className="lg:col-span-1">
               <Card className="sticky top-6">
                 <CardHeader>
-                  <CardTitle>Podgląd plików</CardTitle>
-                  <CardDescription>
-                    {files.length > 0 || existingFiles.length > 0
-                      ? `Wyświetl podgląd wszystkich plików (${files.length + existingFiles.length})`
-                      : 'Wybierz plik, aby zobaczyć podgląd'}
-                  </CardDescription>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <CardTitle>Podgląd plików</CardTitle>
+                      <CardDescription>
+                        {files.length > 0 || existingFiles.length > 0
+                          ? `Wyświetl podgląd wszystkich plików (${files.length + existingFiles.length})`
+                          : 'Wybierz plik, aby zobaczyć podgląd'}
+                      </CardDescription>
+                    </div>
+                    {(files.length > 0 || existingFiles.length > 0) && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 flex-shrink-0"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {activeTab.startsWith('new-') ? (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                const index = parseInt(activeTab.replace('new-', ''))
+                                handleRemoveNewFile(index)
+                                // Ustaw następną dostępną zakładkę
+                                if (files.length > 1) {
+                                  const nextIndex = index === files.length - 1 ? index - 1 : index
+                                  setActiveTab(`new-${nextIndex}`)
+                                } else if (existingFiles.length > 0) {
+                                  setActiveTab('existing-0')
+                                }
+                              }}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Usuń plik
+                            </DropdownMenuItem>
+                          ) : activeTab.startsWith('existing-') ? (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                const index = parseInt(activeTab.replace('existing-', ''))
+                                const file = existingFiles[index]
+                                if (file) {
+                                  handleDeleteExistingFile(file.id, file.file_path)
+                                  // Ustaw następną dostępną zakładkę
+                                  if (existingFiles.length > 1) {
+                                    const nextIndex = index === existingFiles.length - 1 ? index - 1 : index
+                                    setActiveTab(`existing-${nextIndex}`)
+                                  } else if (files.length > 0) {
+                                    setActiveTab('new-0')
+                                  }
+                                }
+                              }}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Usuń plik
+                            </DropdownMenuItem>
+                          ) : null}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {files.length === 0 && existingFiles.length === 0 ? (
@@ -622,7 +813,8 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
                     </div>
                   ) : (
                     <Tabs 
-                      defaultValue={files.length > 0 ? `new-0` : `existing-0`}
+                      value={activeTab}
+                      onValueChange={setActiveTab}
                       className="w-full"
                     >
                       <TabsList className="w-full overflow-x-auto flex flex-nowrap">

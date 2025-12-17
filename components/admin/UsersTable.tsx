@@ -14,8 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EditUserDialog } from './EditUserDialog'
-import { deleteUsers } from '@/app/dashboard/users/actions'
-import { toast } from 'sonner'
+import { DeleteUsersDialog } from './DeleteUsersDialog'
 import { Trash2, Search } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useRouter } from 'next/navigation'
@@ -51,8 +50,9 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'admin' | 'super_admin'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [isDeleting, setIsDeleting] = useState(false)
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
@@ -84,30 +84,13 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
     setSelectedIds(newSelected)
   }
 
-  const handleDeleteSelected = async () => {
+  const handleDeleteSelected = () => {
     if (selectedIds.size === 0) return
-    
-    if (!confirm(`Czy na pewno chcesz usunąć ${selectedIds.size} ${selectedIds.size === 1 ? 'użytkownika' : 'użytkowników'}? Tej operacji nie można cofnąć.`)) {
-      return
-    }
+    setDeleteDialogOpen(true)
+  }
 
-    setIsDeleting(true)
-    try {
-      const result = await deleteUsers(Array.from(selectedIds))
-      
-      if (result.error) {
-        toast.error(result.error)
-      } else {
-        toast.success(result.message || 'Użytkownicy usunięci')
-        setSelectedIds(new Set())
-        router.refresh()
-      }
-    } catch (error) {
-      console.error('Błąd podczas usuwania użytkowników:', error)
-      toast.error('Wystąpił błąd podczas usuwania użytkowników.')
-    } finally {
-      setIsDeleting(false)
-    }
+  const handleDeleteSuccess = () => {
+    setSelectedIds(new Set())
   }
 
   const allSelected = filteredUsers.filter(u => u.id !== currentUserId).length > 0 && 
@@ -317,6 +300,15 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
           />
         ) : null
       })()}
+
+      {/* Dialog usuwania wielu użytkowników */}
+      <DeleteUsersDialog
+        userIds={Array.from(selectedIds)}
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onSuccess={handleDeleteSuccess}
+        onLoadingChange={setIsDeleting}
+      />
     </div>
   )
 }

@@ -70,6 +70,7 @@ export default function TestCreator({ initialTrainingId }: TestCreatorProps) {
   const [addingQuestion, setAddingQuestion] = useState(false)
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
 
+  // Załaduj listę szkoleń
   useEffect(() => {
     const loadTrainings = async () => {
       const { data } = await supabase
@@ -77,13 +78,17 @@ export default function TestCreator({ initialTrainingId }: TestCreatorProps) {
         .select('id, title')
         .order('title', { ascending: true })
       setTrainings(data || [])
-      // Jeśli mamy initialTrainingId, ustaw go po załadowaniu szkoleń
-      if (initialTrainingId && data?.some(t => t.id === initialTrainingId)) {
-        setSelectedTrainingId(initialTrainingId)
-      }
     }
     loadTrainings()
-  }, [supabase, initialTrainingId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Ustaw selectedTrainingId gdy initialTrainingId się zmienia
+  useEffect(() => {
+    if (initialTrainingId) {
+      setSelectedTrainingId(initialTrainingId)
+    }
+  }, [initialTrainingId])
 
   const loadTests = useCallback(async (trainingId: string, preferredTestId?: string) => {
     if (!trainingId) {
@@ -91,24 +96,43 @@ export default function TestCreator({ initialTrainingId }: TestCreatorProps) {
       setSelectedTestId('')
       return
     }
-    const { data } = await supabase
-      .from('tests')
-      .select('id, title')
-      .eq('training_id', trainingId)
-      .order('created_at', { ascending: false })
-    const loadedTests = data || []
-    setTests(loadedTests)
-    if (!loadedTests.length) {
-      setSelectedTestId('')
-      return
-    }
-    if (preferredTestId && loadedTests.some((test) => test.id === preferredTestId)) {
-      setSelectedTestId(preferredTestId)
-      return
-    }
-    setSelectedTestId((prev) => (prev && loadedTests.some((test) => test.id === prev) ? prev : loadedTests[0].id))
-  }, [supabase])
+    try {
+      const { data, error } = await supabase
+        .from('tests')
+        .select('id, title')
+        .eq('training_id', trainingId)
+        .order('created_at', { ascending: false })
+      
+      if (error) {
+        console.error('Błąd ładowania testów:', error)
+        setTests([])
+        setSelectedTestId('')
+        return
+      }
 
+      const loadedTests = data || []
+      setTests(loadedTests)
+      
+      if (!loadedTests.length) {
+        setSelectedTestId('')
+        return
+      }
+      
+      if (preferredTestId && loadedTests.some((test) => test.id === preferredTestId)) {
+        setSelectedTestId(preferredTestId)
+        return
+      }
+      
+      setSelectedTestId((prev) => (prev && loadedTests.some((test) => test.id === prev) ? prev : loadedTests[0].id))
+    } catch (err) {
+      console.error('Błąd podczas ładowania testów:', err)
+      setTests([])
+      setSelectedTestId('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Załaduj testy gdy selectedTrainingId się zmienia
   useEffect(() => {
     if (!selectedTrainingId) {
       setTests([])
@@ -137,13 +161,18 @@ export default function TestCreator({ initialTrainingId }: TestCreatorProps) {
 
       setLoadingTestDetails(true)
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('tests')
           .select(
             'id, training_id, title, pass_threshold, time_limit_minutes, max_attempts, questions_count, randomize_questions'
           )
           .eq('id', selectedTestId)
           .single<TestDetails>()
+
+        if (error) {
+          console.error('Błąd ładowania szczegółów testu:', error)
+          return
+        }
 
         if (data) {
           setTestTitle(data.title)
@@ -153,13 +182,16 @@ export default function TestCreator({ initialTrainingId }: TestCreatorProps) {
           setQuestionsCount(data.questions_count === 0 ? '' : data.questions_count)
           setRandomize(data.randomize_questions ? 'true' : 'false')
         }
+      } catch (err) {
+        console.error('Błąd podczas ładowania szczegółów testu:', err)
       } finally {
         setLoadingTestDetails(false)
       }
     }
 
     void loadTestDetails()
-  }, [selectedTestId, supabase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTestId])
 
   const canSaveTest = useMemo(
     () => !!selectedTrainingId && !!testTitle && !creating && !loadingTestDetails,
@@ -257,21 +289,31 @@ export default function TestCreator({ initialTrainingId }: TestCreatorProps) {
 
       setLoadingQuestions(true)
       try {
-        const { data: questionsData } = await supabase
+        const { data: questionsData, error: questionsError } = await supabase
           .from('test_questions')
           .select('id, question_type, question_text, points, order_number')
           .eq('test_id', selectedTestId)
           .order('order_number', { ascending: true })
 
+        if (questionsError) {
+          console.error('Błąd ładowania pytań:', questionsError)
+          setQuestions([])
+          return
+        }
+
         const questionsWithOptions: TestQuestion[] = []
 
         if (questionsData && questionsData.length) {
           const questionIds = questionsData.map(q => q.id)
-          const { data: optionsData } = await supabase
+          const { data: optionsData, error: optionsError } = await supabase
             .from('test_question_options')
             .select('id, question_id, option_text, is_correct, order_number')
             .in('question_id', questionIds)
             .order('order_number', { ascending: true })
+
+          if (optionsError) {
+            console.error('Błąd ładowania opcji:', optionsError)
+          }
 
           for (const q of questionsData) {
             questionsWithOptions.push({
@@ -291,13 +333,17 @@ export default function TestCreator({ initialTrainingId }: TestCreatorProps) {
         }
 
         setQuestions(questionsWithOptions)
+      } catch (err) {
+        console.error('Błąd podczas ładowania pytań:', err)
+        setQuestions([])
       } finally {
         setLoadingQuestions(false)
       }
     }
 
     void loadQuestions()
-  }, [selectedTestId, supabase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTestId])
 
   const handleCreateTest = async () => {
     if (!selectedTrainingId) return

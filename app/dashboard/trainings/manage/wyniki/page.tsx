@@ -306,15 +306,18 @@ export default async function ResultsPage({ searchParams }: PageProps) {
             }
           }
 
+          // Jeśli szkolenie nie zostało rozpoczęte, nie wyświetlaj wyniku testu
+          const shouldShowTestResult = trainingStatus !== 'not_started'
+
           return {
             user_id: profile.id,
             full_name: profile.full_name,
             email: profile.email,
             function: profile.function,
             training_status: trainingStatus,
-            test_score: testResult?.score ?? null,
-            test_passed: testResult?.passed ?? null,
-            test_completed_at: testResult?.completed_at ?? null,
+            test_score: shouldShowTestResult ? (testResult?.score ?? null) : null,
+            test_passed: shouldShowTestResult ? (testResult?.passed ?? null) : null,
+            test_completed_at: shouldShowTestResult ? (testResult?.completed_at ?? null) : null,
           }
         })
 
