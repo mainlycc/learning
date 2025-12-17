@@ -20,8 +20,7 @@ async function getUsers() {
   const authUsers = authUsersData.users
 
   // Pobierz profile
-  const supabase = await createClient()
-  const { data: profiles, error: profilesError } = await supabase
+  const { data: profiles, error: profilesError } = await adminClient
     .from('profiles')
     .select('*')
 
@@ -38,6 +37,16 @@ async function getUsers() {
       email: authUser.email || '',
       full_name: profile?.full_name || null,
       role: (profile?.role || 'user') as 'user' | 'admin' | 'super_admin',
+      function: (profile?.function as
+        | 'ochrona'
+        | 'pilot'
+        | 'steward'
+        | 'instruktor'
+        | 'uczestnik'
+        | 'gosc'
+        | 'pracownik'
+        | 'kontraktor'
+        | null) ?? null,
       created_at: authUser.created_at,
       email_confirmed_at: authUser.email_confirmed_at || null,
     }

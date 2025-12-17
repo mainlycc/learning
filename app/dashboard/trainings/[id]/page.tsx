@@ -131,6 +131,7 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
 
   const isCompleted = userProgress?.status === 'completed'
   const isInProgress = userProgress?.status === 'in_progress'
+  const completedEarly = userProgress?.completed_early === true
   const progressPercentage = isCompleted
     ? 100
     : userProgress && slideCount > 0
@@ -150,8 +151,29 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
     .limit(1)
     .maybeSingle()
 
+  // Sprawdź czy test został ukończony przez użytkownika
+  let isTestCompleted = false
+  if (test) {
+    const { data: completedAttempt } = await supabase
+      .from('user_test_attempts')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('test_id', test.id)
+      .not('completed_at', 'is', null)
+      .limit(1)
+      .maybeSingle()
+    
+    isTestCompleted = !!completedAttempt
+  }
+
   const getStatusBadge = () => {
     if (isCompleted) {
+      if (completedEarly) {
+        return <Badge variant="destructive" className="flex items-center gap-1">
+          <CheckCircle className="h-3 w-3" />
+          Zakończone przed czasem
+        </Badge>
+      }
       return <Badge variant="default" className="flex items-center gap-1">
         <CheckCircle className="h-3 w-3" />
         Ukończone
@@ -246,33 +268,69 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
 
               {/* Akcje */}
               <div className="flex space-x-3">
-                <Button asChild size="lg" className="flex-1">
-                  <Link href={`/dashboard/trainings/${training.id}/viewer`}>
-                    {isCompleted ? (
-                      <>
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        Przejrzyj ponownie
-                      </>
-                    ) : isInProgress ? (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Kontynuuj szkolenie
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Rozpocznij szkolenie
-                      </>
-                    )}
-                  </Link>
-                </Button>
-                {test && (
-                  <Button asChild size="lg" variant="outline">
-                    <Link href={`/dashboard/trainings/${training.id}/test`}>
-                      <FileQuestion className="mr-2 h-4 w-4" />
-                      Test
+                {completedEarly ? (
+                  <div className="flex-1 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      <div className="flex-1">
+                        <p className="font-semibold text-red-900 dark:text-red-100 mb-1">
+                          Kurs zakończony przed czasem
+                        </p>
+                        <p className="text-sm text-red-800 dark:text-red-200">
+                          Ten kurs został zakończony przed upływem wymaganego czasu. Zgodnie z zasadami, nie możesz już do niego wrócić.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <Button asChild size="lg" className="flex-1">
+                    <Link href={`/dashboard/trainings/${training.id}/viewer`}>
+                      {isCompleted ? (
+                        <>
+                          <CheckCircle className="mr-2 h-4 w-4" />
+                          Przejrzyj ponownie
+                        </>
+                      ) : isInProgress ? (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          Kontynuuj szkolenie
+                        </>
+                      ) : (
+                        <>
+                          <Play className="mr-2 h-4 w-4" />
+                          Rozpocznij szkolenie
+                        </>
+                      )}
                     </Link>
                   </Button>
+                )}
+                {test && (
+                  isTestCompleted ? (
+                    <div className="p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
+                      <div className="flex items-start gap-3">
+                        <svg className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                        <div className="flex-1">
+                          <p className="font-semibold text-red-900 dark:text-red-100 mb-1">
+                            Test został już wykonany
+                          </p>
+                          <p className="text-sm text-red-800 dark:text-red-200">
+                            Ten test został już ukończony. Zgodnie z zasadami, nie możesz wykonać go ponownie.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button asChild size="lg" variant="outline">
+                      <Link href={`/dashboard/trainings/${training.id}/test`}>
+                        <FileQuestion className="mr-2 h-4 w-4" />
+                        Test
+                      </Link>
+                    </Button>
+                  )
                 )}
               </div>
             </CardContent>
@@ -317,20 +375,32 @@ export default async function TrainingDetailPage({ params }: TrainingDetailPageP
               </div>
 
               {test && (
-                <div className="p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 text-sm">
-                  <p className="font-medium flex items-center gap-2 mb-1">
-                    <FileQuestion className="h-4 w-4" />
-                    Test dostępny
-                  </p>
-                  <p className="text-muted-foreground mb-2">
-                    Dla tego szkolenia dostępny jest test: <strong>{test.title}</strong>
-                  </p>
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={`/dashboard/trainings/${training.id}/test`}>
-                      Przejdź do testu
-                    </Link>
-                  </Button>
-                </div>
+                isTestCompleted ? (
+                  <div className="p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 text-sm">
+                    <p className="font-medium flex items-center gap-2 mb-1 text-red-900 dark:text-red-100">
+                      <FileQuestion className="h-4 w-4" />
+                      Test ukończony
+                    </p>
+                    <p className="text-red-800 dark:text-red-200 mb-2">
+                      Test <strong>{test.title}</strong> został już wykonany. Nie możesz wykonać go ponownie.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 text-sm">
+                    <p className="font-medium flex items-center gap-2 mb-1">
+                      <FileQuestion className="h-4 w-4" />
+                      Test dostępny
+                    </p>
+                    <p className="text-muted-foreground mb-2">
+                      Dla tego szkolenia dostępny jest test: <strong>{test.title}</strong>
+                    </p>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/dashboard/trainings/${training.id}/test`}>
+                        Przejdź do testu
+                      </Link>
+                    </Button>
+                  </div>
+                )
               )}
             </CardContent>
           </Card>

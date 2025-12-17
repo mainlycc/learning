@@ -16,6 +16,7 @@ import { ArrowLeft, BarChart3 } from 'lucide-react'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { TrainingSelect } from './training-select'
+import { ExportPdfWrapper } from './export-pdf-wrapper'
 
 interface PageProps {
   searchParams: Promise<{ trainingId?: string }>
@@ -25,6 +26,7 @@ type UserResult = {
   user_id: string
   full_name: string | null
   email: string
+  function: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
   training_status: 'not_started' | 'in_progress' | 'completed' | 'paused'
   test_score: number | null
   test_passed: boolean | null
@@ -77,7 +79,7 @@ export default async function ResultsPage({ searchParams }: PageProps) {
     // Pobierz wybrane szkolenie
     const { data: training } = await supabase
       .from('trainings')
-      .select('id, title')
+      .select('id, title, file_type')
       .eq('id', selectedTrainingId)
       .single()
 
@@ -86,11 +88,16 @@ export default async function ResultsPage({ searchParams }: PageProps) {
 
       // Pobierz użytkowników z dostępem do kursu
       // Używamy admin client aby mieć pewność że RLS nie blokuje dostępu
-      // Sprawdzamy zarówno training_users (przypisani) jak i szkolenia bez przypisań (publiczne)
-      let userIds: string[] = []
+      // Sprawdzamy:
+      // 1. Użytkowników przypisanych do szkolenia (training_users)
+      // 2. Użytkowników z postępem w szkoleniu (user_training_progress)
+      // 3. Użytkowników z wynikami testu (user_test_attempts)
+      let userIds: Set<string> = new Set()
       
       try {
         const adminClient = createAdminClient()
+        
+        // 1. Pobierz użytkowników przypisanych do szkolenia
         const { data: assignedUsers, error: assignedUsersError } = await adminClient
           .from('training_users')
           .select('user_id')
@@ -104,16 +111,48 @@ export default async function ResultsPage({ searchParams }: PageProps) {
             .select('user_id')
             .eq('training_id', selectedTrainingId)
           
-          if (fallbackError) {
-            console.error('Błąd pobierania przypisanych użytkowników (fallback):', fallbackError)
-          } else if (fallbackUsers && fallbackUsers.length > 0) {
+          if (!fallbackError && fallbackUsers) {
             console.log('Użyto fallback - znaleziono użytkowników:', fallbackUsers.length)
-            userIds = fallbackUsers.map(au => au.user_id).filter(id => id)
+            fallbackUsers.forEach(au => userIds.add(au.user_id))
           }
-        } else {
-          console.log('Pobrano przypisanych użytkowników (adminClient):', assignedUsers?.length || 0)
-          if (assignedUsers && assignedUsers.length > 0) {
-            userIds = assignedUsers.map(au => au.user_id).filter(id => id)
+        } else if (assignedUsers) {
+          console.log('Pobrano przypisanych użytkowników (adminClient):', assignedUsers.length)
+          assignedUsers.forEach(au => userIds.add(au.user_id))
+        }
+        
+        // 2. Pobierz użytkowników z postępem w szkoleniu
+        const { data: progressUsers, error: progressError } = await adminClient
+          .from('user_training_progress')
+          .select('user_id')
+          .eq('training_id', selectedTrainingId)
+        
+        if (!progressError && progressUsers) {
+          console.log('Pobrano użytkowników z postępem:', progressUsers.length)
+          progressUsers.forEach(p => userIds.add(p.user_id))
+        } else if (progressError) {
+          console.error('Błąd pobierania użytkowników z postępem:', progressError)
+        }
+        
+        // 3. Pobierz test dla tego szkolenia i użytkowników z wynikami testu
+        const { data: testData } = await adminClient
+          .from('tests')
+          .select('id')
+          .eq('training_id', selectedTrainingId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        
+        if (testData) {
+          const { data: testUsers, error: testError } = await adminClient
+            .from('user_test_attempts')
+            .select('user_id')
+            .eq('test_id', testData.id)
+          
+          if (!testError && testUsers) {
+            console.log('Pobrano użytkowników z wynikami testu:', testUsers.length)
+            testUsers.forEach(t => userIds.add(t.user_id))
+          } else if (testError) {
+            console.error('Błąd pobierania użytkowników z wynikami testu:', testError)
           }
         }
       } catch (error) {
@@ -124,38 +163,35 @@ export default async function ResultsPage({ searchParams }: PageProps) {
           .select('user_id')
           .eq('training_id', selectedTrainingId)
         
-        if (fallbackError) {
-          console.error('Błąd pobierania przypisanych użytkowników (fallback):', fallbackError)
-        } else if (fallbackUsers && fallbackUsers.length > 0) {
+        if (!fallbackError && fallbackUsers) {
           console.log('Użyto fallback - znaleziono użytkowników:', fallbackUsers.length)
-          userIds = fallbackUsers.map(au => au.user_id).filter(id => id)
+          fallbackUsers.forEach(au => userIds.add(au.user_id))
         }
       }
 
-      // Jeśli kurs nie ma przypisanych użytkowników, pobierz wszystkich użytkowników (kurs publiczny)
-      if (userIds.length === 0) {
-        console.log('Brak przypisanych użytkowników - traktuję kurs jako publiczny')
+      // Jeśli nie znaleziono żadnych użytkowników, pobierz wszystkich użytkowników (kurs publiczny)
+      if (userIds.size === 0) {
+        console.log('Brak użytkowników - traktuję kurs jako publiczny')
         const { data: allUsers, error: allUsersError } = await supabase
           .from('profiles')
           .select('id')
         
-        if (allUsersError) {
-          console.error('Błąd pobierania wszystkich użytkowników:', allUsersError)
-        } else {
-          userIds = allUsers?.map(u => u.id).filter(id => id) || []
-          console.log('Pobrano wszystkich użytkowników (kurs publiczny):', userIds.length)
+        if (!allUsersError && allUsers) {
+          allUsers.forEach(u => userIds.add(u.id))
+          console.log('Pobrano wszystkich użytkowników (kurs publiczny):', userIds.size)
         }
       }
 
-      if (userIds.length > 0) {
-        console.log('Szukam profili dla userIds:', userIds)
+      const userIdsArray = Array.from(userIds)
+      if (userIdsArray.length > 0) {
+        console.log('Szukam profili dla userIds:', userIdsArray.length)
         
         // Pobierz postęp szkoleń dla tych użytkowników
         const { data: progress } = await supabase
           .from('user_training_progress')
           .select('user_id, status, completed_at')
           .eq('training_id', selectedTrainingId)
-          .in('user_id', userIds)
+          .in('user_id', userIdsArray)
 
         // Pobierz test dla tego szkolenia
         const { data: testData } = await supabase
@@ -173,7 +209,7 @@ export default async function ResultsPage({ searchParams }: PageProps) {
             .from('user_test_attempts')
             .select('user_id, score, passed, completed_at')
             .eq('test_id', testData.id)
-            .in('user_id', userIds)
+            .in('user_id', userIdsArray)
             .order('score', { ascending: false })
 
           // Dla każdego użytkownika weź najlepszy wynik
@@ -189,14 +225,14 @@ export default async function ResultsPage({ searchParams }: PageProps) {
         }
 
         // Pobierz dane użytkowników - użyj adminClient aby ominąć RLS
-        let profiles: Array<{ id: string; full_name: string | null; email: string }> | null = null
+        let profiles: Array<{ id: string; full_name: string | null; email: string; function: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null }> | null = null
         
         try {
           const adminClient = createAdminClient()
           const { data: adminProfiles, error: adminProfilesError } = await adminClient
             .from('profiles')
-            .select('id, full_name, email')
-            .in('id', userIds)
+            .select('id, full_name, email, function')
+            .in('id', userIdsArray)
           
           profiles = adminProfiles
           
@@ -205,8 +241,8 @@ export default async function ResultsPage({ searchParams }: PageProps) {
             // Fallback: spróbuj użyć zwykłego klienta
             const { data: fallbackProfiles, error: fallbackError } = await supabase
               .from('profiles')
-              .select('id, full_name, email')
-              .in('id', userIds)
+              .select('id, full_name, email, function')
+              .in('id', userIdsArray)
             
             if (fallbackError) {
               console.error('Błąd pobierania profili użytkowników (fallback):', fallbackError)
@@ -222,8 +258,8 @@ export default async function ResultsPage({ searchParams }: PageProps) {
           // Fallback: użyj zwykłego klienta
           const { data: fallbackProfiles, error: fallbackError } = await supabase
             .from('profiles')
-            .select('id, full_name, email')
-            .in('id', userIds)
+            .select('id, full_name, email, function')
+            .in('id', userIdsArray)
           
           if (fallbackError) {
             console.error('Błąd pobierania profili użytkowników (fallback):', fallbackError)
@@ -234,9 +270,9 @@ export default async function ResultsPage({ searchParams }: PageProps) {
         }
         
         // Sprawdź czy wszystkie userIds mają odpowiadające profile
-        if (profiles && profiles.length < userIds.length) {
+        if (profiles && profiles.length < userIdsArray.length) {
           const foundIds = new Set(profiles.map(p => p.id))
-          const missingIds = userIds.filter(id => !foundIds.has(id))
+          const missingIds = userIdsArray.filter(id => !foundIds.has(id))
           console.warn('Nie znaleziono profili dla userIds:', missingIds)
           
           // Sprawdź czy te userIds istnieją w auth.users
@@ -274,6 +310,7 @@ export default async function ResultsPage({ searchParams }: PageProps) {
             user_id: profile.id,
             full_name: profile.full_name,
             email: profile.email,
+            function: profile.function,
             training_status: trainingStatus,
             test_score: testResult?.score ?? null,
             test_passed: testResult?.passed ?? null,
@@ -312,6 +349,31 @@ export default async function ResultsPage({ searchParams }: PageProps) {
     return <span className={`font-medium ${colorClass}`}>{score}%</span>
   }
 
+  const getFunctionLabel = (
+    fn: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
+  ) => {
+    switch (fn) {
+      case 'ochrona':
+        return 'Ochrona'
+      case 'pilot':
+        return 'Pilot'
+      case 'steward':
+        return 'Steward'
+      case 'instruktor':
+        return 'Instruktor'
+      case 'uczestnik':
+        return 'Uczestnik'
+      case 'gosc':
+        return 'Gość'
+      case 'pracownik':
+        return 'Pracownik'
+      case 'kontraktor':
+        return 'Kontraktor'
+      default:
+        return 'Brak'
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -347,10 +409,20 @@ export default async function ResultsPage({ searchParams }: PageProps) {
       {selectedTraining && (
         <Card>
           <CardHeader>
-            <CardTitle>Wyniki dla: {selectedTraining.title}</CardTitle>
-            <CardDescription>
-              Lista użytkowników z dostępem do tego szkolenia oraz ich postępy i wyniki testów
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Wyniki dla: {selectedTraining.title}</CardTitle>
+                <CardDescription>
+                  Lista użytkowników z dostępem do tego szkolenia oraz ich postępy i wyniki testów
+                </CardDescription>
+              </div>
+              {results.length > 0 && (
+                <ExportPdfWrapper 
+                  results={results} 
+                  trainingTitle={selectedTraining.title}
+                />
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {results.length > 0 ? (
@@ -360,6 +432,7 @@ export default async function ResultsPage({ searchParams }: PageProps) {
                     <TableRow>
                       <TableHead>Użytkownik</TableHead>
                       <TableHead>Email</TableHead>
+                      <TableHead>Funkcja</TableHead>
                       <TableHead>Status szkolenia</TableHead>
                       <TableHead>Wynik testu</TableHead>
                       <TableHead>Data testu</TableHead>
@@ -372,6 +445,7 @@ export default async function ResultsPage({ searchParams }: PageProps) {
                           {result.full_name || 'Brak imienia'}
                         </TableCell>
                         <TableCell>{result.email}</TableCell>
+                        <TableCell>{getFunctionLabel(result.function)}</TableCell>
                         <TableCell>{getStatusBadge(result.training_status)}</TableCell>
                         <TableCell>
                           {getTestResultBadge(result.test_score, result.test_passed)}

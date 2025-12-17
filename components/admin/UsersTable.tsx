@@ -14,10 +14,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EditUserDialog } from './EditUserDialog'
-import { DeleteUserDialog } from './DeleteUserDialog'
-import { resendInvitation } from '@/app/dashboard/users/actions'
+import { deleteUsers } from '@/app/dashboard/users/actions'
 import { toast } from 'sonner'
-import { Edit, Trash2, Mail, Search } from 'lucide-react'
+import { Trash2, Search } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { pl } from 'date-fns/locale'
 
@@ -26,6 +27,16 @@ interface User {
   email: string
   full_name: string | null
   role: 'user' | 'admin' | 'super_admin'
+  function:
+    | 'ochrona'
+    | 'pilot'
+    | 'steward'
+    | 'instruktor'
+    | 'uczestnik'
+    | 'gosc'
+    | 'pracownik'
+    | 'kontraktor'
+    | null
   created_at: string
   email_confirmed_at: string | null
 }
@@ -36,8 +47,12 @@ interface UsersTableProps {
 }
 
 export function UsersTable({ users, currentUserId }: UsersTableProps) {
+  const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'admin' | 'super_admin'>('all')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [editingUserId, setEditingUserId] = useState<string | null>(null)
 
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
@@ -49,15 +64,55 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
     return matchesSearch && matchesRole
   })
 
-  const handleResendInvitation = async (email: string) => {
-    const result = await resendInvitation(email)
-    
-    if (result.error) {
-      toast.error(result.error)
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(filteredUsers.filter(u => u.id !== currentUserId).map(u => u.id)))
     } else {
-      toast.success(result.message || 'Zaproszenie wysłane ponownie')
+      setSelectedIds(new Set())
     }
   }
+
+  const handleSelectOne = (id: string, checked: boolean) => {
+    if (id === currentUserId) return // Nie można zaznaczyć siebie
+    
+    const newSelected = new Set(selectedIds)
+    if (checked) {
+      newSelected.add(id)
+    } else {
+      newSelected.delete(id)
+    }
+    setSelectedIds(newSelected)
+  }
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return
+    
+    if (!confirm(`Czy na pewno chcesz usunąć ${selectedIds.size} ${selectedIds.size === 1 ? 'użytkownika' : 'użytkowników'}? Tej operacji nie można cofnąć.`)) {
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      const result = await deleteUsers(Array.from(selectedIds))
+      
+      if (result.error) {
+        toast.error(result.error)
+      } else {
+        toast.success(result.message || 'Użytkownicy usunięci')
+        setSelectedIds(new Set())
+        router.refresh()
+      }
+    } catch (error) {
+      console.error('Błąd podczas usuwania użytkowników:', error)
+      toast.error('Wystąpił błąd podczas usuwania użytkowników.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const allSelected = filteredUsers.filter(u => u.id !== currentUserId).length > 0 && 
+    filteredUsers.filter(u => u.id !== currentUserId).every(u => selectedIds.has(u.id))
+  const someSelected = selectedIds.size > 0 && selectedIds.size < filteredUsers.filter(u => u.id !== currentUserId).length
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
@@ -81,6 +136,40 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
     }
   }
 
+  const getFunctionLabel = (
+    fn:
+      | 'ochrona'
+      | 'pilot'
+      | 'steward'
+      | 'instruktor'
+      | 'uczestnik'
+      | 'gosc'
+      | 'pracownik'
+      | 'kontraktor'
+      | null
+  ) => {
+    switch (fn) {
+      case 'ochrona':
+        return 'Ochrona'
+      case 'pilot':
+        return 'Pilot'
+      case 'steward':
+        return 'Steward'
+      case 'instruktor':
+        return 'Instruktor'
+      case 'uczestnik':
+        return 'Uczestnik'
+      case 'gosc':
+        return 'Gość'
+      case 'pracownik':
+        return 'Pracownik'
+      case 'kontraktor':
+        return 'Kontraktor'
+      default:
+        return 'Brak'
+    }
+  }
+
   if (users.length === 0) {
     return (
       <div className="text-center py-8">
@@ -91,6 +180,25 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
 
   return (
     <div className="space-y-4">
+      <div className="h-[60px] flex items-center">
+        {selectedIds.size > 0 && (
+          <div className="flex items-center justify-between p-4 bg-muted rounded-md w-full">
+            <span className="text-sm font-medium">
+              Zaznaczono: {selectedIds.size} {selectedIds.size === 1 ? 'użytkownika' : 'użytkowników'}
+            </span>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteSelected}
+              disabled={isDeleting}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {isDeleting ? 'Usuwanie...' : `Usuń zaznaczonych (${selectedIds.size})`}
+            </Button>
+          </div>
+        )}
+      </div>
+
       {/* Filtry */}
       <div className="flex gap-4">
         <div className="relative flex-1">
@@ -120,31 +228,55 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={handleSelectAll}
+                  aria-label="Zaznacz wszystkie"
+                />
+              </TableHead>
               <TableHead>Email</TableHead>
               <TableHead>Imię i nazwisko</TableHead>
               <TableHead>Rola</TableHead>
+              <TableHead>Funkcja</TableHead>
               <TableHead>Data rejestracji</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">Akcje</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   Brak użytkowników spełniających kryteria wyszukiwania
                 </TableCell>
               </TableRow>
             ) : (
               filteredUsers.map((user) => (
                 <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.email}</TableCell>
+                  <TableCell>
+                    {user.id !== currentUserId && (
+                      <Checkbox
+                        checked={selectedIds.has(user.id)}
+                        onCheckedChange={(checked) => handleSelectOne(user.id, checked === true)}
+                        aria-label={`Zaznacz ${user.email}`}
+                      />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <button
+                      onClick={() => setEditingUserId(user.id)}
+                      className="font-medium text-primary hover:underline cursor-pointer text-left"
+                    >
+                      {user.email}
+                    </button>
+                  </TableCell>
                   <TableCell>{user.full_name || '-'}</TableCell>
                   <TableCell>
                     <Badge variant={getRoleBadgeVariant(user.role)}>
                       {getRoleLabel(user.role)}
                     </Badge>
                   </TableCell>
+                  <TableCell>{getFunctionLabel(user.function)}</TableCell>
                   <TableCell>
                     {format(new Date(user.created_at), 'dd.MM.yyyy', { locale: pl })}
                   </TableCell>
@@ -159,24 +291,6 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {!user.email_confirmed_at && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleResendInvitation(user.email)}
-                          title="Wyślij ponownie zaproszenie"
-                        >
-                          <Mail className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <EditUserDialog user={user} />
-                      {user.id !== currentUserId && (
-                        <DeleteUserDialog userId={user.id} userEmail={user.email} />
-                      )}
-                    </div>
-                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -187,6 +301,22 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
       <div className="text-sm text-muted-foreground">
         Wyświetlono {filteredUsers.length} z {users.length} użytkowników
       </div>
+
+      {/* Dialog edycji - renderowany poza tabelą */}
+      {editingUserId && (() => {
+        const userToEdit = filteredUsers.find(u => u.id === editingUserId)
+        return userToEdit ? (
+          <EditUserDialog 
+            user={userToEdit} 
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) {
+                setEditingUserId(null)
+              }
+            }}
+          />
+        ) : null
+      })()}
     </div>
   )
 }

@@ -25,6 +25,9 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '50mb',
     },
   },
+
+  // Zezwól na cross-origin requests z lokalnego IP podczas developmentu
+  allowedDevOrigins: ['192.168.137.1'],
 };
 
 export default nextConfig;

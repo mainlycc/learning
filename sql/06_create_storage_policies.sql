@@ -1,6 +1,6 @@
 -- Storage Policies dla Supabase Storage
 
--- Policy dla bucketu trainings (pliki szkoleń PDF/PPTX)
+-- Policy dla bucketu trainings (pliki szkoleń PDF/PPTX/PNG)
 CREATE POLICY "Admins can upload trainings" ON storage.objects
   FOR INSERT WITH CHECK (
     bucket_id = 'trainings' AND

@@ -11,10 +11,11 @@ import { Badge } from '@/components/ui/badge'
 import { Shield, Clock, Eye, Lock, FileUp, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.pptx'] as const
+const ALLOWED_EXTENSIONS = ['.pdf', '.pptx', '.png'] as const
 const ALLOWED_MIME_TYPES = [
   'application/pdf',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'image/png'
 ]
 const MAX_FILE_SIZE_MB = 40
 
@@ -22,7 +23,7 @@ type Training = {
   id: string
   title: string
   file_path: string
-  file_type: 'PDF' | 'PPTX'
+  file_type: 'PDF' | 'PPTX' | 'PNG'
 }
 
 type AccessPolicy = {
@@ -126,7 +127,7 @@ export default function TrainingUpload() {
     const matchesMime = ALLOWED_MIME_TYPES.includes(inputFile.type)
 
     if (!matchesExtension && !matchesMime) {
-      return 'Dozwolone formaty: PDF lub PPTX.'
+      return 'Dozwolone formaty: PDF, PPTX lub PNG.'
     }
 
     if (inputFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
@@ -136,9 +137,10 @@ export default function TrainingUpload() {
     return null
   }
 
-  const getFileType = (f: File): 'PDF' | 'PPTX' => {
+  const getFileType = (f: File): 'PDF' | 'PPTX' | 'PNG' => {
     const name = f.name.toLowerCase()
     if (name.endsWith('.pptx')) return 'PPTX'
+    if (name.endsWith('.png')) return 'PNG'
     return 'PDF'
   }
 
@@ -346,22 +348,22 @@ export default function TrainingUpload() {
                 </div>
               ) : (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Wgraj plik PDF lub PPTX, aby udostępnić źródłową wersję szkolenia.
+                  Wgraj plik PDF, PPTX lub PNG, aby udostępnić źródłową wersję szkolenia.
                 </p>
               )}
             </div>
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="file">Plik (PDF lub PPTX)</Label>
+            <Label htmlFor="file">Plik (PDF, PPTX lub PNG)</Label>
             <Input
               id="file"
               type="file"
-              accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              accept=".pdf,.pptx,.png,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
             <p className="text-xs text-muted-foreground">
-              Maksymalny rozmiar: {MAX_FILE_SIZE_MB} MB. Obsługiwane formaty: PDF, PPTX.
+              Maksymalny rozmiar: {MAX_FILE_SIZE_MB} MB. Obsługiwane formaty: PDF, PPTX, PNG.
             </p>
           </div>
 

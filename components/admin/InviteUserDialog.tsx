@@ -13,10 +13,16 @@ import { toast } from 'sonner'
 export function InviteUserDialog() {
   const [open, setOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    email: string
+    full_name: string
+    role: 'user' | 'admin' | 'super_admin'
+    function: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | 'none'
+  }>({
     email: '',
     full_name: '',
-    role: 'user' as 'user' | 'admin' | 'super_admin',
+    role: 'user',
+    function: 'none',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -27,6 +33,7 @@ export function InviteUserDialog() {
     formDataObj.append('email', formData.email)
     formDataObj.append('full_name', formData.full_name)
     formDataObj.append('role', formData.role)
+    formDataObj.append('function', formData.function === 'none' ? '' : formData.function)
 
     const result = await inviteUser(formDataObj)
 
@@ -35,7 +42,12 @@ export function InviteUserDialog() {
     } else {
       toast.success(result.message || 'Zaproszenie wysłane pomyślnie')
       setOpen(false)
-      setFormData({ email: '', full_name: '', role: 'user' })
+      setFormData({
+        email: '',
+        full_name: '',
+        role: 'user',
+        function: 'none',
+      })
     }
 
     setIsLoading(false)
@@ -100,6 +112,44 @@ export function InviteUserDialog() {
             <p className="text-xs text-muted-foreground">
               Użytkownik otrzyma email z linkiem do rejestracji i ustawienia hasła.
             </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="function">Funkcja</Label>
+            <Select
+              value={formData.function || 'none'}
+              onValueChange={value =>
+                setFormData({
+                  ...formData,
+                  function: value as
+                    | 'ochrona'
+                    | 'pilot'
+                    | 'steward'
+                    | 'instruktor'
+                    | 'uczestnik'
+                    | 'gosc'
+                    | 'pracownik'
+                    | 'kontraktor'
+                    | 'none',
+                })
+              }
+              disabled={isLoading}
+            >
+              <SelectTrigger id="function">
+                <SelectValue placeholder="Brak" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Brak</SelectItem>
+                <SelectItem value="ochrona">Ochrona</SelectItem>
+                <SelectItem value="pilot">Pilot</SelectItem>
+                <SelectItem value="steward">Steward</SelectItem>
+                <SelectItem value="instruktor">Instruktor</SelectItem>
+                <SelectItem value="uczestnik">Uczestnik</SelectItem>
+                <SelectItem value="gosc">Gość</SelectItem>
+                <SelectItem value="pracownik">Pracownik</SelectItem>
+                <SelectItem value="kontraktor">Kontraktor</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <DialogFooter>

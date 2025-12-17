@@ -19,7 +19,7 @@ W **Supabase Dashboard → Storage**, utwórz następujące buckety:
 #### Bucket `trainings`
 - **Public:** No
 - **File size limit:** 100MB
-- **Allowed MIME types:** `application/pdf`, `application/vnd.ms-powerpoint`, `application/vnd.openxmlformats-officedocument.presentationml.presentation`
+- **Allowed MIME types:** `application/pdf`, `application/vnd.ms-powerpoint`, `application/vnd.openxmlformats-officedocument.presentationml.presentation`, `image/png`
 
 #### Bucket `slides`
 - **Public:** No
@@ -51,7 +51,10 @@ W **Supabase Dashboard → Storage**, utwórz następujące buckety:
 13. 17_fix_trainings_access_rls.sql
 14. 19_add_training_id_to_notifications.sql
 15. 20_fix_notifications_rls.sql
-16. 07_sample_data.sql (opcjonalne - tylko jeśli chcesz dane testowe)
+16. 21_add_png_support_to_trainings.sql (dodaje obsługę PNG do szkoleń)
+17. 22_create_training_files_table.sql (tworzy tabelę do przechowywania wielu plików na szkolenie)
+18. 23_create_training_files_rls.sql (tworzy RLS policies dla training_files)
+19. 07_sample_data.sql (opcjonalne - tylko jeśli chcesz dane testowe)
 ```
 
 **UWAGA:** 

@@ -15,6 +15,7 @@ export interface Database {
           email: string
           full_name: string | null
           role: 'super_admin' | 'admin' | 'user'
+          function: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
           created_at: string
           updated_at: string
         }
@@ -23,6 +24,7 @@ export interface Database {
           email: string
           full_name?: string | null
           role?: 'super_admin' | 'admin' | 'user'
+          function?: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
           created_at?: string
           updated_at?: string
         }
@@ -31,6 +33,7 @@ export interface Database {
           email?: string
           full_name?: string | null
           role?: 'super_admin' | 'admin' | 'user'
+          function?: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
           created_at?: string
           updated_at?: string
         }
@@ -43,7 +46,7 @@ export interface Database {
           description: string | null
           duration_minutes: number
           file_path: string
-          file_type: 'PDF' | 'PPTX'
+          file_type: 'PDF' | 'PPTX' | 'PNG'
           slides_count: number
           created_by: string
           created_at: string
@@ -56,7 +59,7 @@ export interface Database {
           description?: string | null
           duration_minutes: number
           file_path: string
-          file_type: 'PDF' | 'PPTX'
+          file_type: 'PDF' | 'PPTX' | 'PNG'
           slides_count: number
           created_by: string
           created_at?: string
@@ -239,6 +242,7 @@ export interface Database {
           total_time_seconds: number
           completed_at: string | null
           status: 'in_progress' | 'completed' | 'paused'
+          completed_early: boolean | null
           created_at: string
           updated_at: string
         }
@@ -250,6 +254,7 @@ export interface Database {
           total_time_seconds?: number
           completed_at?: string | null
           status?: 'in_progress' | 'completed' | 'paused'
+          completed_early?: boolean | null
           created_at?: string
           updated_at?: string
         }
@@ -261,6 +266,7 @@ export interface Database {
           total_time_seconds?: number
           completed_at?: string | null
           status?: 'in_progress' | 'completed' | 'paused'
+          completed_early?: boolean | null
           created_at?: string
           updated_at?: string
         }

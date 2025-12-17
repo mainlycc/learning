@@ -18,11 +18,10 @@ import { InvitationDialog } from './invitation-dialog'
 import {
   resendInvitations,
   deleteInvitations,
-  cancelInvitation,
   type TutorInvitation,
 } from '@/lib/actions/invitations'
 import { toast } from 'sonner'
-import { Mail, Trash2, X, Copy, CheckCircle2, Clock, XCircle } from 'lucide-react'
+import { Mail, Trash2, CheckCircle2, Clock, XCircle } from 'lucide-react'
 import { format } from 'date-fns'
 import { pl } from 'date-fns/locale'
 
@@ -37,6 +36,7 @@ export function InvitationsManagement({ invitations: initialInvitations }: Invit
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
+      // Zaznacz wszystkie zaproszenia (w tym wygasłe)
       setSelectedIds(invitations.map(inv => inv.id))
     } else {
       setSelectedIds([])
@@ -57,11 +57,22 @@ export function InvitationsManagement({ invitations: initialInvitations }: Invit
       return
     }
 
+    // Filtruj tylko zaproszenia pending
+    const pendingIds = selectedIds.filter(id => {
+      const inv = invitations.find(i => i.id === id)
+      return inv?.status === 'pending'
+    })
+
+    if (pendingIds.length === 0) {
+      toast.error('Można wysłać ponownie tylko zaproszenia oczekujące')
+      return
+    }
+
     setIsProcessing(true)
-    const result = await resendInvitations(selectedIds)
+    const result = await resendInvitations(pendingIds)
 
     if (result.success) {
-      toast.success(`Wysłano ponownie ${selectedIds.length} zaproszeń`)
+      toast.success(`Wysłano ponownie ${pendingIds.length} zaproszeń`)
       setSelectedIds([])
       // Odśwież stronę
       window.location.reload()
@@ -96,35 +107,6 @@ export function InvitationsManagement({ invitations: initialInvitations }: Invit
     setIsProcessing(false)
   }
 
-  const handleCancelInvitation = async (id: string) => {
-    if (!confirm('Czy na pewno chcesz anulować to zaproszenie?')) {
-      return
-    }
-
-    setIsProcessing(true)
-    const result = await cancelInvitation(id)
-
-    if (result.success) {
-      toast.success('Zaproszenie zostało anulowane')
-      setInvitations(
-        invitations.map(inv =>
-          inv.id === id ? { ...inv, status: 'expired' as const } : inv
-        )
-      )
-    } else {
-      toast.error(result.error || 'Nie udało się anulować zaproszenia')
-    }
-
-    setIsProcessing(false)
-  }
-
-  const handleCopyLink = (token: string) => {
-    const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-    const link = `${baseUrl}/register?token=${token}`
-    navigator.clipboard.writeText(link)
-    toast.success('Link skopiowany do schowka')
-  }
-
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
@@ -153,59 +135,62 @@ export function InvitationsManagement({ invitations: initialInvitations }: Invit
     }
   }
 
-  const pendingInvitations = invitations.filter(inv => inv.status === 'pending')
-  const allSelected = selectedIds.length > 0 && selectedIds.length === pendingInvitations.length
+  // Wszystkie zaproszenia (do zaznaczania wszystkich)
+  const allSelected = invitations.length > 0 && selectedIds.length === invitations.length
+  const someSelected = selectedIds.length > 0 && selectedIds.length < invitations.length
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Zarządzanie zaproszeniami</h1>
-          <p className="text-muted-foreground">
-            Wysyłaj i zarządzaj zaproszeniami dla nowych tutorów
-          </p>
-        </div>
-        <InvitationDialog />
+      <div>
+        <h1 className="text-3xl font-bold">Zarządzanie zaproszeniami</h1>
+        <p className="text-muted-foreground">
+          Wysyłaj i zarządzaj zaproszeniami dla nowych tutorów
+        </p>
       </div>
-
-      {selectedIds.length > 0 && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Zaznaczono {selectedIds.length} zaproszeń
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleResendSelected}
-                  disabled={isProcessing}
-                >
-                  <Mail className="mr-2 h-4 w-4" />
-                  Wyślij ponownie
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleDeleteSelected}
-                  disabled={isProcessing}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Usuń
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Lista zaproszeń</CardTitle>
-          <CardDescription>
-            Zarządzaj wszystkimi zaproszeniami wysłanymi do tutorów
-          </CardDescription>
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle>Lista zaproszeń</CardTitle>
+              <CardDescription>
+                Zarządzaj wszystkimi zaproszeniami wysłanymi do tutorów
+                {selectedIds.length > 0 && (
+                  <span className="ml-2 text-foreground">
+                    • Zaznaczono {selectedIds.length} {selectedIds.length === 1 ? 'zaproszenie' : 'zaproszeń'}
+                  </span>
+                )}
+              </CardDescription>
+            </div>
+            <div className="flex gap-2 items-center">
+              {selectedIds.length > 0 && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResendSelected}
+                    disabled={isProcessing || !selectedIds.some(id => {
+                      const inv = invitations.find(i => i.id === id)
+                      return inv?.status === 'pending'
+                    })}
+                  >
+                    <Mail className="mr-2 h-4 w-4" />
+                    Wyślij ponownie
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDeleteSelected}
+                    disabled={isProcessing}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Usuń
+                  </Button>
+                </>
+              )}
+              <InvitationDialog />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {invitations.length === 0 ? (
@@ -220,27 +205,26 @@ export function InvitationsManagement({ invitations: initialInvitations }: Invit
                     <Checkbox
                       checked={allSelected}
                       onCheckedChange={handleSelectAll}
+                      aria-label="Zaznacz wszystkie"
                     />
                   </TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Data utworzenia</TableHead>
                   <TableHead>Wygasa</TableHead>
-                  <TableHead className="text-right">Akcje</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {invitations.map((invitation) => (
                   <TableRow key={invitation.id}>
                     <TableCell>
-                      {invitation.status === 'pending' && (
-                        <Checkbox
-                          checked={selectedIds.includes(invitation.id)}
-                          onCheckedChange={(checked) =>
-                            handleSelectOne(invitation.id, checked as boolean)
-                          }
-                        />
-                      )}
+                      <Checkbox
+                        checked={selectedIds.includes(invitation.id)}
+                        onCheckedChange={(checked) =>
+                          handleSelectOne(invitation.id, checked as boolean)
+                        }
+                        aria-label={`Zaznacz ${invitation.email}`}
+                      />
                     </TableCell>
                     <TableCell className="font-medium">{invitation.email}</TableCell>
                     <TableCell>{getStatusBadge(invitation.status)}</TableCell>
@@ -253,31 +237,6 @@ export function InvitationsManagement({ invitations: initialInvitations }: Invit
                       {format(new Date(invitation.expires_at), 'dd MMM yyyy, HH:mm', {
                         locale: pl,
                       })}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        {invitation.status === 'pending' && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleCopyLink(invitation.token)}
-                              title="Kopiuj link"
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleCancelInvitation(invitation.id)}
-                              disabled={isProcessing}
-                              title="Anuluj"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

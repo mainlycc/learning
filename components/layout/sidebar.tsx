@@ -20,7 +20,8 @@ import {
   Moon,
   Sun,
   Plane,
-  Mail
+  Mail,
+  TrendingUp
 } from 'lucide-react'
 import { NotificationCenter } from './NotificationCenter'
 import {
@@ -81,9 +82,21 @@ export function AppSidebar({ user }: SidebarProps) {
       roles: ['super_admin', 'admin', 'user']
     },
     {
+      name: 'Wyniki',
+      href: '/dashboard/wyniki',
+      icon: TrendingUp,
+      roles: ['user']
+    },
+    {
       name: 'Zarządzanie szkoleniami',
       href: '/dashboard/trainings/manage',
       icon: FileText,
+      roles: ['super_admin', 'admin']
+    },
+    {
+      name: 'Wyniki szkoleń',
+      href: '/dashboard/trainings/manage/wyniki',
+      icon: TrendingUp,
       roles: ['super_admin', 'admin']
     },
     {

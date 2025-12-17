@@ -20,7 +20,7 @@ interface AuditLog {
   profiles: {
     full_name: string | null
     email: string
-  }
+  } | null
 }
 
 interface AuditStats {
@@ -99,10 +99,10 @@ async function getAuditLogs(
     .order('created_at', { ascending: false })
 
   // Zastosuj filtry
-  if (filters?.action_type) {
+  if (filters?.action_type && filters.action_type !== 'all') {
     query = query.eq('action_type', filters.action_type)
   }
-  if (filters?.resource_type) {
+  if (filters?.resource_type && filters.resource_type !== 'all') {
     query = query.eq('resource_type', filters.resource_type)
   }
   if (filters?.user_id && filters.user_id !== 'all') {
@@ -272,12 +272,12 @@ export default async function AuditPage({
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Typ akcji</label>
-              <Select defaultValue={actionType}>
+              <Select defaultValue={actionType || "all"}>
                 <SelectTrigger>
                   <SelectValue placeholder="Wszystkie typy" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Wszystkie typy</SelectItem>
+                  <SelectItem value="all">Wszystkie typy</SelectItem>
                   {Object.entries(actionTypeLabels).map(([key, label]) => (
                     <SelectItem key={key} value={key}>{label}</SelectItem>
                   ))}
@@ -287,12 +287,12 @@ export default async function AuditPage({
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Typ zasobu</label>
-              <Select defaultValue={resourceType}>
+              <Select defaultValue={resourceType || "all"}>
                 <SelectTrigger>
                   <SelectValue placeholder="Wszystkie zasoby" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Wszystkie zasoby</SelectItem>
+                  <SelectItem value="all">Wszystkie zasoby</SelectItem>
                   {Object.entries(resourceTypeLabels).map(([key, label]) => (
                     <SelectItem key={key} value={key}>{label}</SelectItem>
                   ))}
@@ -374,7 +374,7 @@ export default async function AuditPage({
                       </div>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <User className="h-3 w-3" />
-                        <span>{log.profiles.full_name || log.profiles.email}</span>
+                        <span>{log.profiles?.full_name || log.profiles?.email || 'Nieznany użytkownik'}</span>
                         <Calendar className="h-3 w-3" />
                         <span>
                           {format(new Date(log.created_at), 'dd.MM.yyyy HH:mm', { locale: pl })}

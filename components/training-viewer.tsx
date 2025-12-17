@@ -1,9 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import dynamic from 'next/dynamic'
-import type { DocViewerProps } from '@cyntler/react-doc-viewer'
-import '@cyntler/react-doc-viewer/dist/index.css'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -28,42 +25,11 @@ import {
   AlertCircle,
   Shield,
   Eye,
-  Lock,
-  RefreshCw
+  Lock
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { PptxRenderer, PPTX_RENDERER_FILE_TYPES } from '@/components/doc-renderers/PptxRenderer'
-import JSZip from 'jszip'
-
-const DocViewerLazy = dynamic(
-  async () => {
-    const mod = await import('@cyntler/react-doc-viewer')
-    const pluginRenderers = [
-      PptxRenderer,
-      ...mod.DocViewerRenderers.filter((renderer) =>
-        !renderer.fileTypes?.some((type) => PPTX_RENDERER_FILE_TYPES.includes(type))
-      )
-    ]
-    const DocViewerComponent = (props: DocViewerProps) => (
-      <mod.default
-        {...props}
-        pluginRenderers={pluginRenderers}
-        style={{ width: '100%', height: '100%' }}
-      />
-    )
-    DocViewerComponent.displayName = 'DocViewerLazy'
-    return DocViewerComponent
-  },
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-        Ładowanie podglądu dokumentu...
-      </div>
-    )
-  }
-)
+import { TaskTrainingViewer } from '@/components/task-training-viewer'
 
 interface TrainingSlide {
   id: string
@@ -78,7 +44,7 @@ interface Training {
   description: string | null
   duration_minutes: number
   slides_count: number
-  file_type: 'PDF' | 'PPTX'
+  file_type: 'PDF' | 'PPTX' | 'PNG'
   file_path: string
 }
 
@@ -87,6 +53,7 @@ interface UserProgress {
   current_slide: number
   total_time_seconds: number
   status: 'in_progress' | 'completed' | 'paused'
+  completed_early?: boolean
 }
 
 interface AccessPolicy {
@@ -96,24 +63,29 @@ interface AccessPolicy {
   time_limit_days: number | null
 }
 
+interface TrainingFile {
+  id: string
+  file_path: string
+  file_type: 'PDF' | 'PPTX' | 'PNG'
+  file_name: string
+  file_size: number | null
+}
+
 interface TrainingViewerProps {
   training: Training
   slides: TrainingSlide[]
   userProgress?: UserProgress
   accessPolicy?: AccessPolicy
+  trainingFiles?: TrainingFile[]
 }
 
-export function TrainingViewer({ training, slides, userProgress, accessPolicy }: TrainingViewerProps) {
+export function TrainingViewer({ training, slides, userProgress, accessPolicy, trainingFiles = [] }: TrainingViewerProps) {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0)
   const [timeOnSlide, setTimeOnSlide] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
   const [slideActivity, setSlideActivity] = useState<{ [key: string]: number }>({})
   const [showInactivityWarning, setShowInactivityWarning] = useState(false)
   const [isCompleted, setIsCompleted] = useState(false)
-  const [fileDocs, setFileDocs] = useState<DocViewerProps['documents']>([])
-  const [fileStatus, setFileStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [fileError, setFileError] = useState<string | null>(null)
-  const [signedUrlExpiresAt, setSignedUrlExpiresAt] = useState<number | null>(null)
   const [pptxSlideCount, setPptxSlideCount] = useState<number | null>(null)
   const [showCompleteDialog, setShowCompleteDialog] = useState(false)
   const [isCompleting, setIsCompleting] = useState(false)
@@ -136,6 +108,11 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
     ? (remainingTrainingSeconds / totalTrainingSeconds) * 100
     : 0
   const totalSlidesCount = useMemo(() => {
+    // Jeśli są pliki w training_files, użyj ich liczby
+    if (trainingFiles.length > 0) {
+      return trainingFiles.length
+    }
+    
     const metadataCount = training.slides_count ?? 0
     const preloadedCount = slides.length
 
@@ -144,7 +121,7 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
     }
 
     return preloadedCount || metadataCount
-  }, [slides.length, training.file_type, training.slides_count, pptxSlideCount])
+  }, [slides.length, training.file_type, training.slides_count, pptxSlideCount, trainingFiles.length])
 
   // Zapisz postęp do bazy danych
   const saveProgress = useCallback(async () => {
@@ -303,6 +280,10 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
       // Zapisz postęp jako ukończony
       const totalTime = Object.values(slideActivity).reduce((sum, time) => sum + time, 0)
       
+      // Sprawdź czy kurs jest zakończany przed czasem
+      const totalTrainingSeconds = training.duration_minutes * 60
+      const completedEarly = totalTime < totalTrainingSeconds
+      
       if (!progressIdRef.current) {
         // Utwórz nowy postęp
         const user = (await supabase.auth.getUser()).data.user
@@ -318,7 +299,8 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
             current_slide: totalSlidesCount,
             total_time_seconds: totalTime,
             status: 'completed',
-            completed_at: new Date().toISOString()
+            completed_at: new Date().toISOString(),
+            completed_early: completedEarly
           })
           .select()
           .single()
@@ -334,7 +316,8 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
             current_slide: totalSlidesCount,
             total_time_seconds: totalTime,
             status: 'completed',
-            completed_at: new Date().toISOString()
+            completed_at: new Date().toISOString(),
+            completed_early: completedEarly
           })
           .eq('id', progressIdRef.current)
       }
@@ -360,99 +343,25 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
-  const shouldShowFileViewer = (training.file_type === 'PPTX' || training.file_type === 'PDF') && Boolean(training.file_path)
-  const canRefreshSignedUrl = shouldShowFileViewer && fileStatus !== 'loading'
-
-  const docViewerConfig = useMemo<DocViewerProps['config']>(() => ({
-    header: {
-      disableHeader: true,
-      disableFileName: true,
-      retainURLParams: true
-    },
-    enableDownload: false,
-    pdfVerticalScrollByDefault: true,
-    textSelection: true
-  }), [])
-
-  const extractPptxSlideCount = useCallback(async (signedUrl: string) => {
-    try {
-      const response = await fetch(signedUrl)
-      if (!response.ok) {
-        throw new Error('Nie udało się pobrać pliku PPTX.')
-      }
-
-      const arrayBuffer = await response.arrayBuffer()
-      const zip = await JSZip.loadAsync(arrayBuffer)
-      const slideFiles = Object.keys(zip.files).filter(
-        (name) => name.startsWith('ppt/slides/slide') && name.endsWith('.xml')
-      )
-
-      setPptxSlideCount(slideFiles.length || null)
-    } catch (error) {
-      console.error('Błąd liczenia slajdów PPTX:', error)
-      setPptxSlideCount(null)
+  // Określ, który plik wyświetlić na podstawie aktualnego slajdu
+  const getCurrentFile = useMemo(() => {
+    if (trainingFiles.length > 0) {
+      // Użyj plików z training_files
+      const fileIndex = Math.min(currentSlideIndex, trainingFiles.length - 1)
+      return trainingFiles[fileIndex]
     }
-  }, [])
-
-  const refreshSignedUrl = useCallback(async () => {
-    if (!shouldShowFileViewer) return
-    setFileStatus('loading')
-    setFileError(null)
-
-    try {
-      const { data, error } = await supabase.storage
-        .from('trainings')
-        .createSignedUrl(training.file_path, 60 * 60) // 1h
-
-      if (error || !data?.signedUrl) {
-        throw new Error(error?.message || 'Nie udało się wygenerować adresu podglądu.')
+    // Fallback dla starych szkoleń
+    if ((training.file_type === 'PPTX' || training.file_type === 'PDF' || training.file_type === 'PNG') && training.file_path) {
+      return {
+        file_path: training.file_path,
+        file_type: training.file_type,
+        file_name: training.file_path.split('/').pop() || 'file'
       }
-
-      const fileType = training.file_type === 'PDF' ? 'pdf' : 'pptx'
-      setFileDocs([
-        {
-          uri: data.signedUrl,
-          fileType: fileType,
-          fileName: training.title
-        }
-      ])
-      setSignedUrlExpiresAt(Date.now() + 60 * 60 * 1000)
-      setFileStatus('ready')
-      
-      // Dla PPTX liczymy slajdy, dla PDF nie ma potrzeby
-      if (training.file_type === 'PPTX') {
-        await extractPptxSlideCount(data.signedUrl)
-      }
-    } catch (err) {
-      console.error(err)
-      setSignedUrlExpiresAt(null)
-      const fileTypeName = training.file_type === 'PDF' ? 'PDF' : 'PPTX'
-      setFileError(err instanceof Error ? err.message : `Nieznany błąd podglądu ${fileTypeName}.`)
-      setFileStatus('error')
     }
-  }, [shouldShowFileViewer, supabase, training.file_path, training.title, training.file_type, extractPptxSlideCount])
+    return null
+  }, [trainingFiles, currentSlideIndex, training.file_type, training.file_path])
 
-  useEffect(() => {
-    if (shouldShowFileViewer) {
-      refreshSignedUrl()
-    } else {
-      setFileDocs([])
-      setFileStatus('idle')
-      setFileError(null)
-      setSignedUrlExpiresAt(null)
-      setPptxSlideCount(null)
-    }
-  }, [shouldShowFileViewer, refreshSignedUrl])
-
-  useEffect(() => {
-    if (!signedUrlExpiresAt) return
-
-    const timeout = setTimeout(() => {
-      refreshSignedUrl()
-    }, Math.max(signedUrlExpiresAt - Date.now() - 60_000, 30_000))
-
-    return () => clearTimeout(timeout)
-  }, [signedUrlExpiresAt, refreshSignedUrl])
+  const shouldShowFileViewer = getCurrentFile !== null
 
   if (!currentSlide) {
     return (
@@ -473,7 +382,7 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
+        {/* Header */}
       <div className="bg-white dark:bg-gray-800 border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -531,80 +440,39 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
       </div>
 
       {/* Main content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Slide viewer */}
         <div
           className="min-h-[calc(100vh-220px)]"
           style={{ height: 'calc(100vh - 220px)' }}
         >
-          <Card className="h-full">
-            <CardContent className="p-0 h-full">
-                {shouldShowFileViewer ? (
-                  <div className="relative h-full min-h-[70vh] bg-gray-100 dark:bg-gray-900 overflow-auto">
-                    {fileStatus === 'loading' && (
-                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                        Ładowanie pliku {training.file_type}...
-                      </div>
-                    )}
-
-                    {fileStatus === 'error' && (
-                      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-                        <AlertCircle className="h-8 w-8 text-red-500" />
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium">Nie udało się wyświetlić pliku {training.file_type}.</p>
-                          <p className="text-sm text-muted-foreground">{fileError}</p>
-                        </div>
-                        <Button variant="outline" onClick={refreshSignedUrl}>
-                          Spróbuj ponownie
-                        </Button>
-                      </div>
-                    )}
-
-                    {fileStatus === 'ready' && fileDocs.length > 0 && (
-                      <DocViewerLazy
-                        documents={fileDocs}
-                        config={docViewerConfig}
-                        style={{ width: '100%', height: '100%' }}
-                      />
-                    )}
-
-                    {fileStatus === 'ready' && fileDocs.length === 0 && (
-                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                        Brak danych do wyświetlenia.
-                      </div>
-                    )}
-
-                    <div className="absolute right-4 top-4 flex items-center gap-2">
-                      <Badge variant="secondary" className="text-xs uppercase">
-                        {training.file_type}
-                      </Badge>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        onClick={refreshSignedUrl}
-                        disabled={!canRefreshSignedUrl}
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="relative aspect-video bg-gray-100 dark:bg-gray-800">
-                    <Image
-                      src={currentSlide.image_url}
-                      alt={`Slajd ${currentSlide.slide_number}`}
-                      fill
-                      className="object-contain"
-                      priority
-                    />
-                  </div>
-                )}
+          <Card className="h-full py-0 gap-0">
+            <CardContent className="p-0 h-full flex-1">
+              {shouldShowFileViewer && getCurrentFile ? (
+                <TaskTrainingViewer
+                  fileType={getCurrentFile.file_type}
+                  filePath={getCurrentFile.file_path}
+                  title={`${training.title} - ${getCurrentFile.file_name}`}
+                  supabase={supabase}
+                  onSlideCountChange={setPptxSlideCount}
+                />
+              ) : (
+                <div className="relative aspect-video bg-gray-100 dark:bg-gray-800">
+                  <Image
+                    src={currentSlide.image_url}
+                    alt={`Slajd ${currentSlide.slide_number}`}
+                    fill
+                    className="object-contain"
+                    priority
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Panels below viewer */}
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-3 mt-8">
           <Card>
             <CardHeader className="pb-3">
               <h3 className="font-semibold flex items-center">
@@ -701,9 +569,44 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Zakończyć kurs?</DialogTitle>
-            <DialogDescription>
-              Czy na pewno chcesz zakończyć kurs &quot;{training.title}&quot;? 
-              Po zakończeniu kurs zostanie oznaczony jako ukończony i zostaniesz przekierowany do strony szkolenia.
+            <DialogDescription className="space-y-3">
+              {(() => {
+                const totalTime = Object.values(slideActivity).reduce((sum, time) => sum + time, 0)
+                const totalTrainingSeconds = training.duration_minutes * 60
+                const isCompletingEarly = totalTime < totalTrainingSeconds
+                
+                if (isCompletingEarly) {
+                  return (
+                    <>
+                      <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="font-semibold text-red-900 dark:text-red-100 mb-2">
+                            ⚠️ UWAGA: Zakończenie kursu przed czasem
+                          </p>
+                          <p className="text-sm text-red-800 dark:text-red-200 mb-2">
+                            Zakończasz kurs &quot;{training.title}&quot; przed upływem wymaganego czasu ({training.duration_minutes} minut).
+                            Spędziłeś na kursie tylko {Math.floor(totalTime / 60)} minut z wymaganych {training.duration_minutes} minut.
+                          </p>
+                          <p className="text-sm font-semibold text-red-900 dark:text-red-100">
+                            ⛔ Po zakończeniu kursu przed czasem NIE BĘDZIESZ MÓGŁ już nigdy do niego wrócić!
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        Czy na pewno chcesz kontynuować? Ta decyzja jest nieodwracalna.
+                      </p>
+                    </>
+                  )
+                }
+                
+                return (
+                  <p>
+                    Czy na pewno chcesz zakończyć kurs &quot;{training.title}&quot;? 
+                    Po zakończeniu kurs zostanie oznaczony jako ukończony i zostaniesz przekierowany do strony szkolenia.
+                  </p>
+                )
+              })()}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -717,7 +620,14 @@ export function TrainingViewer({ training, slides, userProgress, accessPolicy }:
             <Button
               onClick={handleCompleteTraining}
               disabled={isCompleting}
-              className="bg-green-600 hover:bg-green-700"
+              className={(() => {
+                const totalTime = Object.values(slideActivity).reduce((sum, time) => sum + time, 0)
+                const totalTrainingSeconds = training.duration_minutes * 60
+                const isCompletingEarly = totalTime < totalTrainingSeconds
+                return isCompletingEarly 
+                  ? "bg-red-600 hover:bg-red-700" 
+                  : "bg-green-600 hover:bg-green-700"
+              })()}
             >
               {isCompleting ? 'Zapisywanie...' : 'Tak, zakończ kurs'}
             </Button>

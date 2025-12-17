@@ -119,6 +119,23 @@ export default async function TrainingsPage() {
     return Math.min(Math.round((progress.current_slide / slidesCount) * 100), 100)
   }
 
+  // Filtruj ukończone kursy - nie wyświetlaj ich
+  const availableTrainings = resolvedTrainings?.filter((training) => {
+    const userProgress = getProgressForTraining(training.id)
+    return userProgress?.status !== 'completed'
+  }) ?? []
+
+  // Pobierz informacje o ukończonych testach dla dostępnych szkoleń
+  const testIds = tests?.map(t => t.id) ?? []
+  const { data: completedTests } = testIds.length > 0 ? await supabase
+    .from('user_test_attempts')
+    .select('test_id')
+    .eq('user_id', user.id)
+    .not('completed_at', 'is', null)
+    .in('test_id', testIds) : { data: null }
+
+  const completedTestIds = new Set(completedTests?.map(ct => ct.test_id) ?? [])
+
   return (
     <div className="space-y-6">
       <div>
@@ -131,11 +148,15 @@ export default async function TrainingsPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {resolvedTrainings?.map((training) => {
+        {availableTrainings.map((training) => {
           const userProgress = getProgressForTraining(training.id)
           const progressPercentage = getProgressPercentage(userProgress, training.resolvedSlidesCount)
           const isCompleted = userProgress?.status === 'completed'
           const isInProgress = userProgress?.status === 'in_progress'
+          
+          // Sprawdź czy test dla tego szkolenia został ukończony
+          const testForTraining = testsByTrainingId[training.id]
+          const isTestCompleted = testForTraining ? completedTestIds.has(testForTraining.id) : false
 
           return (
             <Card key={training.id} className="hover:shadow-lg transition-shadow">
@@ -169,7 +190,7 @@ export default async function TrainingsPage() {
                     : 'Brak danych o slajdach'}
                 </div>
 
-                {testsByTrainingId[training.id] && (
+                {testsByTrainingId[training.id] && !isTestCompleted && (
                   <div className="flex items-center text-sm text-blue-600 dark:text-blue-400">
                     <FileQuestion className="mr-2 h-4 w-4" />
                     Test dostępny
@@ -219,13 +240,13 @@ export default async function TrainingsPage() {
         })}
       </div>
 
-      {(!trainings || trainings.length === 0) && (
+      {(!availableTrainings || availableTrainings.length === 0) && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">Brak dostępnych szkoleń</h3>
             <p className="text-muted-foreground text-center">
-              Obecnie nie ma żadnych aktywnych szkoleń. Skontaktuj się z administratorem.
+              Obecnie nie ma żadnych aktywnych szkoleń do wykonania. Wszystkie dostępne szkolenia zostały już ukończone.
             </p>
           </CardContent>
         </Card>

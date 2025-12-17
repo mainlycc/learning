@@ -52,6 +52,20 @@ export async function inviteUser(formData: FormData) {
     const email = String(formData.get('email') || '').trim().toLowerCase()
     const fullName = String(formData.get('full_name') || '').trim() || null
     const role = String(formData.get('role') || 'user') as 'user' | 'admin' | 'super_admin'
+    const rawFunction = String(formData.get('function') || '').trim()
+    const allowedFunctions = [
+      'ochrona',
+      'pilot',
+      'steward',
+      'instruktor',
+      'uczestnik',
+      'gosc',
+      'pracownik',
+      'kontraktor',
+    ] as const
+    const userFunction = allowedFunctions.includes(rawFunction as any)
+      ? (rawFunction as (typeof allowedFunctions)[number])
+      : null
 
     if (!email || !email.includes('@')) {
       return { error: 'Nieprawidłowy adres email' }
@@ -103,7 +117,7 @@ export async function inviteUser(formData: FormData) {
       // Używamy adminClient do aktualizacji profilu, aby ominąć RLS
       const { error: profileError } = await adminClient
         .from('profiles')
-        .update({ role: role, full_name: fullName })
+        .update({ role: role, full_name: fullName, function: userFunction })
         .eq('id', invitedUserId)
 
       if (profileError) {
@@ -140,7 +154,7 @@ export async function inviteUser(formData: FormData) {
       'user_invited',
       'user',
       invitedUserId || null,
-      { email, role, full_name: fullName }
+      { email, role, full_name: fullName, function: userFunction }
     )
 
     revalidatePath('/dashboard/users')
@@ -202,18 +216,33 @@ export async function updateUserRole(userId: string, newRole: 'user' | 'admin' |
   }
 }
 
-export async function updateUserProfile(userId: string, fullName: string | null) {
+export async function updateUserProfile(
+  userId: string,
+  fullName: string | null,
+  userFunction:
+    | 'ochrona'
+    | 'pilot'
+    | 'steward'
+    | 'instruktor'
+    | 'uczestnik'
+    | 'gosc'
+    | 'pracownik'
+    | 'kontraktor'
+    | null
+) {
   try {
     const { user } = await checkAdminPermissions()
 
-    const supabase = await createClient()
+    // Używamy adminClient do aktualizacji profilu, aby ominąć RLS
+    const adminClient = createAdminClient()
 
-    const { error } = await supabase
+    const { error } = await adminClient
       .from('profiles')
-      .update({ full_name: fullName })
+      .update({ full_name: fullName, function: userFunction })
       .eq('id', userId)
 
     if (error) {
+      console.error('Błąd aktualizacji profilu:', error)
       return { error: error.message }
     }
 
@@ -222,7 +251,7 @@ export async function updateUserProfile(userId: string, fullName: string | null)
       'user_profile_updated',
       'user',
       userId,
-      { full_name: fullName }
+      { full_name: fullName, function: userFunction }
     )
 
     revalidatePath('/dashboard/users')
@@ -282,6 +311,92 @@ export async function deleteUser(userId: string) {
     return { success: true, message: 'Użytkownik usunięty pomyślnie' }
   } catch (error) {
     console.error('Błąd usuwania użytkownika:', error)
+    return { error: error instanceof Error ? error.message : 'Nieznany błąd' }
+  }
+}
+
+export async function deleteUsers(userIds: string[]) {
+  try {
+    const { user } = await checkAdminPermissions()
+
+    if (userIds.length === 0) {
+      return { error: 'Nie wybrano żadnych użytkowników' }
+    }
+
+    const supabase = await createClient()
+    const adminClient = createAdminClient()
+
+    // Sprawdź czy próbujemy usunąć siebie
+    if (userIds.includes(user.id)) {
+      return { error: 'Nie możesz usunąć własnego konta' }
+    }
+
+    // Sprawdź czy próbujemy usunąć ostatniego super_admin
+    const { data: userProfiles } = await supabase
+      .from('profiles')
+      .select('id, role')
+      .in('id', userIds)
+
+    const superAdminIds = userProfiles?.filter(p => p.role === 'super_admin').map(p => p.id) || []
+    
+    if (superAdminIds.length > 0) {
+      const { count } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('role', 'super_admin')
+
+      const remainingSuperAdmins = (count || 0) - superAdminIds.length
+      if (remainingSuperAdmins < 1) {
+        return { error: 'Nie można usunąć ostatniego super administratora' }
+      }
+    }
+
+    // Usuń użytkowników
+    const errors: string[] = []
+    const deletedEmails: string[] = []
+
+    for (const userId of userIds) {
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', userId)
+        .single()
+
+      const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId)
+
+      if (deleteError) {
+        errors.push(`${userProfile?.email || userId}: ${deleteError.message}`)
+      } else {
+        deletedEmails.push(userProfile?.email || userId)
+        await logAuditEvent(
+          user.id,
+          'user_deleted',
+          'user',
+          userId,
+          { deleted_user_email: userProfile?.email }
+        )
+      }
+    }
+
+    if (errors.length > 0 && deletedEmails.length === 0) {
+      return { error: `Nie udało się usunąć użytkowników: ${errors.join(', ')}` }
+    }
+
+    if (errors.length > 0) {
+      revalidatePath('/dashboard/users')
+      return { 
+        success: true, 
+        message: `Usunięto ${deletedEmails.length} użytkowników. Błędy: ${errors.join(', ')}` 
+      }
+    }
+
+    revalidatePath('/dashboard/users')
+    return { 
+      success: true, 
+      message: `Usunięto ${deletedEmails.length} ${deletedEmails.length === 1 ? 'użytkownika' : 'użytkowników'}` 
+    }
+  } catch (error) {
+    console.error('Błąd usuwania użytkowników:', error)
     return { error: error instanceof Error ? error.message : 'Nieznany błąd' }
   }
 }

@@ -1,16 +1,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
-import { TrainingForm } from './training-form'
+import { TrainingTabs } from './training-tabs'
 
 export default async function NewTrainingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; editId?: string }>
 }) {
   const resolvedSearchParams = await searchParams
   const supabase = await createClient()
@@ -44,10 +44,10 @@ export default async function NewTrainingPage({
   const { data: authUsersData } = await adminClient.auth.admin.listUsers()
   const authUsers = authUsersData?.users || []
 
-  // Pobierz profile
-  const { data: profiles } = await supabase
+  // Pobierz profile używając adminClient (tak samo jak w /dashboard/users)
+  const { data: profiles } = await adminClient
     .from('profiles')
-    .select('id, email, full_name')
+    .select('id, email, full_name, function')
 
   // Połącz dane tak samo jak w /dashboard/users
   const users = authUsers.map((authUser) => {
@@ -56,8 +56,41 @@ export default async function NewTrainingPage({
       id: authUser.id,
       email: authUser.email || '',
       full_name: profile?.full_name || null,
+      function: (profile?.function || null) as 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null,
     }
   }).filter(user => user.id) // Usuń puste wpisy
+
+  // Jeśli jest editId, pobierz dane szkolenia
+  let trainingData = null
+  let assignedUserIds: string[] = []
+  
+  if (resolvedSearchParams.editId) {
+    const { data: training } = await supabase
+      .from('trainings')
+      .select('*')
+      .eq('id', resolvedSearchParams.editId)
+      .single()
+
+    if (training) {
+      trainingData = {
+        id: training.id,
+        title: training.title,
+        description: training.description,
+        duration_minutes: training.duration_minutes,
+        file_type: training.file_type as 'PDF' | 'PPTX' | 'PNG',
+        is_active: training.is_active,
+        file_path: training.file_path,
+      }
+
+      // Pobierz przypisanych użytkowników
+      const { data: trainingUsers } = await supabase
+        .from('training_users')
+        .select('user_id')
+        .eq('training_id', training.id)
+
+      assignedUserIds = trainingUsers?.map(tu => tu.user_id) || []
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -69,8 +102,14 @@ export default async function NewTrainingPage({
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl font-semibold">Dodaj nowe szkolenie</h1>
-          <p className="text-muted-foreground">Wypełnij informacje o szkoleniu i załącz plik PDF lub PPTX</p>
+          <h1 className="text-2xl font-semibold">
+            {trainingData ? 'Edytuj szkolenie' : 'Dodaj nowe szkolenie'}
+          </h1>
+          <p className="text-muted-foreground">
+            {trainingData 
+              ? 'Zmodyfikuj informacje o szkoleniu i załącz nowy plik (opcjonalnie)' 
+              : 'Wypełnij informacje o szkoleniu i załącz plik PDF lub PPTX'}
+          </p>
         </div>
       </div>
 
@@ -81,7 +120,11 @@ export default async function NewTrainingPage({
         </div>
       )}
 
-      <TrainingForm initialUsers={users} />
+      <TrainingTabs 
+        users={users} 
+        trainingData={trainingData}
+        assignedUserIds={assignedUserIds}
+      />
     </div>
   )
 }
