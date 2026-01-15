@@ -38,39 +38,9 @@ export default async function TrainingTestPage({ params }: PageProps) {
   const { data: training } = await trainingQuery.single()
   if (!training) notFound()
 
-  // Sprawdź dostęp dla zwykłych użytkowników (admini mają dostęp do wszystkiego)
-  if (!isAdmin) {
-    // Sprawdź czy kurs ma przypisanych użytkowników
-    const { data: assignedUsers } = await supabase
-      .from('training_users')
-      .select('user_id')
-      .eq('training_id', id)
-
-    // Jeśli kurs ma przypisanych użytkowników, sprawdź czy aktualny użytkownik jest wśród nich
-    if (assignedUsers && assignedUsers.length > 0) {
-      const isAssigned = assignedUsers.some(au => au.user_id === user.id)
-      if (!isAssigned) {
-        // Użytkownik nie ma dostępu do tego kursu
-        return (
-          <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-            <div className="max-w-md mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
-              <div className="text-center">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                  Brak dostępu
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400 mb-4">
-                  Nie masz dostępu do testu dla tego szkolenia.
-                </p>
-                <Button asChild>
-                  <Link href="/dashboard/trainings">Powrót do listy szkoleń</Link>
-                </Button>
-              </div>
-            </div>
-          </div>
-        )
-      }
-    }
-  }
+  // RLS policy na trainings już filtruje dostęp - jeśli użytkownik nie ma dostępu,
+  // szkolenie nie pojawi się w wynikach zapytania (notFound() wyżej)
+  // Nie musimy ręcznie sprawdzać przypisań
 
   // Pobierz test przypisany do szkolenia (na razie jeden test na szkolenie)
   const { data: tests } = await supabase

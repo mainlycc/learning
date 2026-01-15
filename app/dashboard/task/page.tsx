@@ -3,6 +3,10 @@ import { TaskViewer } from '@/components/task-viewer'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AlertCircle } from 'lucide-react'
 
+// Wyłącz cache dla tej strony - zawsze pobieraj najnowsze dane
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function TaskPage() {
   const supabase = await createClient()
   
@@ -47,6 +51,8 @@ export default async function TaskPage() {
   )
 
   // Filtruj szkolenia według uprawnień użytkownika i ukończenia
+  // RLS policy na trainings już filtruje dostęp - jeśli użytkownik nie ma dostępu,
+  // szkolenie nie pojawi się w wynikach zapytania
   let availableTrainings: typeof allTrainings = []
 
   if (allTrainings) {
@@ -54,29 +60,11 @@ export default async function TaskPage() {
       // Admini widzą wszystkie szkolenia (nawet ukończone)
       availableTrainings = allTrainings
     } else {
-      // Dla zwykłych użytkowników sprawdź dostęp i ukończenie
-      for (const training of allTrainings) {
-        // Pomiń ukończone kursy
-        if (completedTrainingIds.has(training.id)) {
-          continue
-        }
-
-        const { data: assignedUsers } = await supabase
-          .from('training_users')
-          .select('user_id')
-          .eq('training_id', training.id)
-
-        // Jeśli szkolenie nie ma przypisanych użytkowników, jest dostępne dla wszystkich
-        // Jeśli ma przypisanych, sprawdź czy użytkownik jest wśród nich
-        if (!assignedUsers || assignedUsers.length === 0) {
-          availableTrainings.push(training)
-        } else {
-          const isAssigned = assignedUsers.some(au => au.user_id === user.id)
-          if (isAssigned) {
-            availableTrainings.push(training)
-          }
-        }
-      }
+      // Dla zwykłych użytkowników RLS policy już filtruje dostęp
+      // Filtrujemy tylko ukończone kursy
+      availableTrainings = allTrainings.filter(training => 
+        !completedTrainingIds.has(training.id)
+      )
     }
   }
 

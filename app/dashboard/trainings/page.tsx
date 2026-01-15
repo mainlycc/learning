@@ -13,6 +13,10 @@ type UserProgress = Database['public']['Tables']['user_training_progress']['Row'
 
 type TrainingWithCount = Training & { resolvedSlidesCount: number }
 
+// Wyłącz cache dla tej strony - zawsze pobieraj najnowsze dane
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function TrainingsPage() {
   const supabase = await createClient()
   
@@ -32,11 +36,30 @@ export default async function TrainingsPage() {
   // Pobierz szkolenia - RLS policy automatycznie filtruje dostęp
   // Dla adminów: wszystkie szkolenia
   // Dla zwykłych użytkowników: tylko przypisane lub publiczne (bez przypisań)
-  const { data: trainings } = await supabase
+  const { data: trainings, error: trainingsError } = await supabase
     .from('trainings')
     .select('*')
     .eq('is_active', true)
     .order('created_at', { ascending: false })
+
+  // DEBUG: Sprawdź przypisania użytkownika
+  const { data: userAssignments, error: assignmentsError } = await supabase
+    .from('training_users')
+    .select('training_id')
+    .eq('user_id', user.id)
+
+  // DEBUG: Loguj informacje (tylko w development)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('DEBUG TrainingsPage:')
+    console.log('  User ID:', user.id)
+    console.log('  User email:', user.email)
+    console.log('  Is admin:', isAdmin)
+    console.log('  Trainings count:', trainings?.length || 0)
+    console.log('  Trainings error:', trainingsError)
+    console.log('  User assignments count:', userAssignments?.length || 0)
+    console.log('  User assignments:', userAssignments)
+    console.log('  Assignments error:', assignmentsError)
+  }
 
   // Pobierz postępy użytkownika
   const { data: progress } = await supabase

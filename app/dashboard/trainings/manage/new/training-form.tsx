@@ -481,6 +481,17 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
           }
         }
 
+        // Aktywuj szkolenie po pomyślnym wgraniu wszystkich plików
+        const { error: activateError } = await supabase
+          .from('trainings')
+          .update({ is_active: true })
+          .eq('id', result.trainingId)
+
+        if (activateError) {
+          console.error('Błąd aktywacji szkolenia:', activateError)
+          // Nie przerywamy procesu - szkolenie zostało utworzone, tylko nie jest aktywne
+        }
+
         // Zapisz ID utworzonego kursu i pokaż dialog sukcesu
         setCreatedTrainingId(result.trainingId)
         setShowSuccessDialog(true)
