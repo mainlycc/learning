@@ -3,8 +3,25 @@ import { redirect } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Users, Shield, UserCheck } from 'lucide-react'
 import { UsersTable } from '@/components/admin/UsersTable'
-
+import { InviteUserDialog } from '@/components/admin/InviteUserDialog'
 import { createAdminClient } from '@/lib/supabase/admin'
+import type { UserGroup } from '@/components/admin/GroupsManager'
+
+async function getGroups(): Promise<UserGroup[]> {
+  const supabase = await createClient()
+  
+  const { data: groups, error } = await supabase
+    .from('user_groups')
+    .select('*')
+    .order('display_name')
+  
+  if (error) {
+    console.error('Błąd pobierania grup:', error)
+    return []
+  }
+  
+  return groups || []
+}
 
 async function getUsers() {
   const adminClient = createAdminClient()
@@ -37,16 +54,7 @@ async function getUsers() {
       email: authUser.email || '',
       full_name: profile?.full_name || null,
       role: (profile?.role || 'user') as 'user' | 'admin' | 'super_admin',
-      function: (profile?.function as
-        | 'ochrona'
-        | 'pilot'
-        | 'steward'
-        | 'instruktor'
-        | 'uczestnik'
-        | 'gosc'
-        | 'pracownik'
-        | 'kontraktor'
-        | null) ?? null,
+      function: profile?.function || null,
       created_at: authUser.created_at,
       email_confirmed_at: authUser.email_confirmed_at || null,
     }
@@ -55,37 +63,21 @@ async function getUsers() {
   return users
 }
 
-async function getStats() {
-  const supabase = await createClient()
-  
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('role, created_at')
-
-  if (!profiles) {
-    return {
-      total: 0,
-      admins: 0,
-      activeThisMonth: 0,
-    }
-  }
-
+function computeStats(users: { role: string; created_at: string; email_confirmed_at: string | null }[]) {
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
-  const activeThisMonth = profiles.filter(
-    (p) => new Date(p.created_at) >= monthStart
+  const total = users.length
+
+  const admins = users.filter(
+    (u) => u.role === 'admin' || u.role === 'super_admin'
   ).length
 
-  const admins = profiles.filter(
-    (p) => p.role === 'admin' || p.role === 'super_admin'
+  const activeThisMonth = users.filter(
+    (u) => u.email_confirmed_at && new Date(u.created_at) >= monthStart
   ).length
 
-  return {
-    total: profiles.length,
-    admins,
-    activeThisMonth,
-  }
+  return { total, admins, activeThisMonth }
 }
 
 export default async function UsersPage() {
@@ -120,7 +112,14 @@ export default async function UsersPage() {
     )
   }
 
-  const [users, stats] = await Promise.all([getUsers(), getStats()])
+  const [users, groups] = await Promise.all([
+    getUsers(),
+    getGroups(),
+  ])
+
+  const stats = computeStats(users)
+
+  const isSuperAdmin = profile?.role === 'super_admin'
 
   return (
     <div className="space-y-6">
@@ -133,6 +132,7 @@ export default async function UsersPage() {
             Zarządzaj użytkownikami systemu
           </p>
         </div>
+        <InviteUserDialog />
       </div>
 
       {/* Statystyki */}
@@ -192,7 +192,8 @@ export default async function UsersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <UsersTable users={users} currentUserId={user.id} />
+          {/* Tabela użytkowników z zarządzaniem grupami */}
+          <UsersTable users={users} currentUserId={user.id} groups={groups} isSuperAdmin={isSuperAdmin} />
         </CardContent>
       </Card>
     </div>

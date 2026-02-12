@@ -16,36 +16,34 @@ interface User {
   email: string
   full_name: string | null
   role: 'user' | 'admin' | 'super_admin'
-  function:
-    | 'ochrona'
-    | 'pilot'
-    | 'steward'
-    | 'instruktor'
-    | 'uczestnik'
-    | 'gosc'
-    | 'pracownik'
-    | 'kontraktor'
-    | null
+  function: string | null
 }
 
-export function EditUserDialog({ user, open: controlledOpen, onOpenChange }: { user: User; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+interface UserGroup {
+  id: string
+  name: string
+  display_name: string
+  description: string | null
+}
+
+export function EditUserDialog({ 
+  user, 
+  groups = [],
+  open: controlledOpen, 
+  onOpenChange 
+}: { 
+  user: User
+  groups?: UserGroup[]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void 
+}) {
   const router = useRouter()
   const [internalOpen, setInternalOpen] = useState(false)
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen
   const setOpen = onOpenChange || setInternalOpen
   const [isLoading, setIsLoading] = useState(false)
   const [fullName, setFullName] = useState(user.full_name || '')
-  const [userFunction, setUserFunction] = useState<
-    | 'ochrona'
-    | 'pilot'
-    | 'steward'
-    | 'instruktor'
-    | 'uczestnik'
-    | 'gosc'
-    | 'pracownik'
-    | 'kontraktor'
-    | 'none'
-  >(user.function || 'none')
+  const [userFunction, setUserFunction] = useState<string>(user.function || 'none')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -54,24 +52,15 @@ export function EditUserDialog({ user, open: controlledOpen, onOpenChange }: { u
     const result = await updateUserProfile(
       user.id,
       fullName.trim() || null,
-      (userFunction === 'none' ? null : userFunction) as
-        | 'ochrona'
-        | 'pilot'
-        | 'steward'
-        | 'instruktor'
-        | 'uczestnik'
-        | 'gosc'
-        | 'pracownik'
-        | 'kontraktor'
-        | null
+      (userFunction === 'none' ? null : userFunction) as string | null
     )
 
     if (result.error) {
       toast.error(result.error)
     } else {
       toast.success(result.message || 'Profil zaktualizowany')
-      setOpen(false)
       router.refresh()
+      setOpen(false)
     }
 
     setIsLoading(false)
@@ -136,23 +125,10 @@ export function EditUserDialog({ user, open: controlledOpen, onOpenChange }: { u
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="function">Funkcja</Label>
+            <Label htmlFor="function">Grupa</Label>
             <Select
               value={userFunction || 'none'}
-              onValueChange={(value) =>
-                setUserFunction(
-                  value as
-                    | 'ochrona'
-                    | 'pilot'
-                    | 'steward'
-                    | 'instruktor'
-                    | 'uczestnik'
-                    | 'gosc'
-                    | 'pracownik'
-                    | 'kontraktor'
-                    | 'none'
-                )
-              }
+              onValueChange={(value) => setUserFunction(value)}
               disabled={isLoading}
             >
               <SelectTrigger id="function">
@@ -160,14 +136,11 @@ export function EditUserDialog({ user, open: controlledOpen, onOpenChange }: { u
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">Brak</SelectItem>
-                <SelectItem value="ochrona">Ochrona</SelectItem>
-                <SelectItem value="pilot">Pilot</SelectItem>
-                <SelectItem value="steward">Steward</SelectItem>
-                <SelectItem value="instruktor">Instruktor</SelectItem>
-                <SelectItem value="uczestnik">Uczestnik</SelectItem>
-                <SelectItem value="gosc">Gość</SelectItem>
-                <SelectItem value="pracownik">Pracownik</SelectItem>
-                <SelectItem value="kontraktor">Kontraktor</SelectItem>
+                {groups.map((group) => (
+                  <SelectItem key={group.id} value={group.name}>
+                    {group.display_name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

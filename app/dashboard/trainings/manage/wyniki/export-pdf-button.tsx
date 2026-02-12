@@ -9,11 +9,12 @@ interface UserResult {
   user_id: string
   full_name: string | null
   email: string
-  function: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
+  function: string | null
   training_status: 'not_started' | 'in_progress' | 'completed' | 'paused'
   test_score: number | null
   test_passed: boolean | null
   test_completed_at: string | null
+  training_completed_at: string | null
 }
 
 interface ExportPdfButtonProps {
@@ -46,7 +47,7 @@ export function ExportPdfButton({ results, trainingTitle }: ExportPdfButtonProps
   }
 
   const handleExport = () => {
-    const doc = new jsPDF()
+    const doc = new jsPDF({ orientation: 'landscape' })
     
     // Tytuł szkolenia (bez polskich znaków)
     doc.setFontSize(18)
@@ -67,11 +68,15 @@ export function ExportPdfButton({ results, trainingTitle }: ExportPdfButtonProps
       const testDate = result.test_completed_at
         ? new Date(result.test_completed_at).toLocaleDateString('pl-PL')
         : '-'
+      const trainingDate = result.training_completed_at
+        ? new Date(result.training_completed_at).toLocaleDateString('pl-PL')
+        : '-'
       
       return [
         removePolishCharsFromText(result.full_name || 'Brak imienia'),
         result.email,
         removePolishCharsFromText(functionText),
+        trainingDate,
         removePolishCharsFromText(statusText),
         removePolishCharsFromText(testResult),
         removePolishCharsFromText(testDate)
@@ -84,13 +89,14 @@ export function ExportPdfButton({ results, trainingTitle }: ExportPdfButtonProps
         removePolishCharsFromText('Uzytkownik'),
         'Email',
         removePolishCharsFromText('Funkcja'),
+        removePolishCharsFromText('Data szkolenia'),
         removePolishCharsFromText('Status szkolenia'),
         removePolishCharsFromText('Wynik testu'),
         removePolishCharsFromText('Data testu')
       ]],
       body: tableData,
       startY: 40,
-      styles: { fontSize: 9 },
+      styles: { fontSize: 8 },
       headStyles: { fillColor: [66, 139, 202], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [245, 245, 245] },
       margin: { top: 10, left: 14, right: 14 },
@@ -115,28 +121,17 @@ export function ExportPdfButton({ results, trainingTitle }: ExportPdfButtonProps
     }
   }
 
-  const getFunctionLabel = (
-    fn: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
-  ) => {
+  const getFunctionLabel = (fn: string | null) => {
     switch (fn) {
-      case 'ochrona':
-        return 'Ochrona'
-      case 'pilot':
-        return 'Pilot'
-      case 'steward':
-        return 'Steward'
-      case 'instruktor':
-        return 'Instruktor'
-      case 'uczestnik':
-        return 'Uczestnik'
-      case 'gosc':
-        return 'Gosc'
-      case 'pracownik':
-        return 'Pracownik'
-      case 'kontraktor':
-        return 'Kontraktor'
-      default:
-        return 'Brak'
+      case 'ochrona': return 'Ochrona'
+      case 'pilot': return 'Pilot'
+      case 'steward': return 'Steward'
+      case 'instruktor': return 'Instruktor'
+      case 'uczestnik': return 'Uczestnik'
+      case 'gosc': return 'Gosc'
+      case 'pracownik': return 'Pracownik'
+      case 'kontraktor': return 'Kontraktor'
+      default: return fn || 'Brak'
     }
   }
   
@@ -151,4 +146,3 @@ export function ExportPdfButton({ results, trainingTitle }: ExportPdfButtonProps
     </Button>
   )
 }
-

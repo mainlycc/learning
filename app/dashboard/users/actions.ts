@@ -219,16 +219,7 @@ export async function updateUserRole(userId: string, newRole: 'user' | 'admin' |
 export async function updateUserProfile(
   userId: string,
   fullName: string | null,
-  userFunction:
-    | 'ochrona'
-    | 'pilot'
-    | 'steward'
-    | 'instruktor'
-    | 'uczestnik'
-    | 'gosc'
-    | 'pracownik'
-    | 'kontraktor'
-    | null
+  userFunction: string | null
 ) {
   try {
     const { user } = await checkAdminPermissions()
@@ -397,6 +388,207 @@ export async function deleteUsers(userIds: string[]) {
     }
   } catch (error) {
     console.error('Błąd usuwania użytkowników:', error)
+    return { error: error instanceof Error ? error.message : 'Nieznany błąd' }
+  }
+}
+
+// ========== ZARZĄDZANIE GRUPAMI ==========
+
+interface UserGroup {
+  id: string
+  name: string
+  display_name: string
+  description: string | null
+  created_at: string
+  created_by: string | null
+}
+
+export async function getGroups(): Promise<{ groups: UserGroup[] | null; error: string | null }> {
+  try {
+    const supabase = await createClient()
+    
+    const { data: groups, error } = await supabase
+      .from('user_groups')
+      .select('*')
+      .order('display_name')
+    
+    if (error) {
+      console.error('Błąd pobierania grup:', error)
+      return { groups: null, error: error.message }
+    }
+    
+    return { groups, error: null }
+  } catch (error) {
+    console.error('Błąd pobierania grup:', error)
+    return { groups: null, error: error instanceof Error ? error.message : 'Nieznany błąd' }
+  }
+}
+
+export async function createGroup(formData: FormData) {
+  try {
+    const { user } = await checkAdminPermissions()
+    
+    const displayName = String(formData.get('display_name') || '').trim()
+    
+    if (!displayName) {
+      return { error: 'Nazwa grupy jest wymagana' }
+    }
+    
+    // Generuj nazwę techniczną z nazwy wyświetlanej
+    // Konwertuj na małe litery, zamień spacje na podkreślenia, usuń polskie znaki
+    const name = displayName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // usuń znaki diakrytyczne
+      .replace(/[^a-z0-9]+/g, '_') // zamień wszystko co nie jest literą/cyfrą na podkreślenie
+      .replace(/^_+|_+$/g, '') // usuń podkreślenia na początku i końcu
+    
+    if (!name) {
+      return { error: 'Nie można wygenerować nazwy technicznej z podanej nazwy' }
+    }
+    
+    const supabase = await createClient()
+    
+    const { data, error } = await supabase
+      .from('user_groups')
+      .insert({
+        name,
+        display_name: displayName,
+        created_by: user.id,
+      })
+      .select()
+      .single()
+    
+    if (error) {
+      if (error.code === '23505') {
+        return { error: 'Grupa o takiej nazwie już istnieje' }
+      }
+      console.error('Błąd tworzenia grupy:', error)
+      return { error: error.message }
+    }
+    
+    await logAuditEvent(
+      user.id,
+      'group_created',
+      'user_group',
+      data.id,
+      { name, display_name: displayName }
+    )
+    
+    revalidatePath('/dashboard/users')
+    return { success: true, message: 'Grupa utworzona pomyślnie', group: data }
+  } catch (error) {
+    console.error('Błąd tworzenia grupy:', error)
+    return { error: error instanceof Error ? error.message : 'Nieznany błąd' }
+  }
+}
+
+export async function updateGroup(groupId: string, formData: FormData) {
+  try {
+    const { user } = await checkAdminPermissions()
+    
+    const displayName = String(formData.get('display_name') || '').trim()
+    
+    if (!displayName) {
+      return { error: 'Nazwa grupy jest wymagana' }
+    }
+    
+    const supabase = await createClient()
+    
+    const { error } = await supabase
+      .from('user_groups')
+      .update({
+        display_name: displayName,
+      })
+      .eq('id', groupId)
+    
+    if (error) {
+      console.error('Błąd aktualizacji grupy:', error)
+      return { error: error.message }
+    }
+    
+    await logAuditEvent(
+      user.id,
+      'group_updated',
+      'user_group',
+      groupId,
+      { display_name: displayName }
+    )
+    
+    revalidatePath('/dashboard/users')
+    return { success: true, message: 'Grupa zaktualizowana pomyślnie' }
+  } catch (error) {
+    console.error('Błąd aktualizacji grupy:', error)
+    return { error: error instanceof Error ? error.message : 'Nieznany błąd' }
+  }
+}
+
+export async function deleteGroup(groupId: string) {
+  try {
+    await checkAdminPermissions()
+    
+    const supabase = await createClient()
+    
+    // Sprawdź czy profil aktualnego użytkownika to super_admin
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { error: 'Brak autoryzacji' }
+    }
+    
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    
+    if (profile?.role !== 'super_admin') {
+      return { error: 'Tylko super administrator może usuwać grupy' }
+    }
+    
+    // Pobierz dane grupy przed usunięciem
+    const { data: group } = await supabase
+      .from('user_groups')
+      .select('name')
+      .eq('id', groupId)
+      .single()
+    
+    if (!group) {
+      return { error: 'Grupa nie znaleziona' }
+    }
+    
+    // Sprawdź czy ktoś używa tej grupy
+    const adminClient = createAdminClient()
+    const { count } = await adminClient
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('function', group.name)
+    
+    if (count && count > 0) {
+      return { error: `Nie można usunąć grupy - ${count} użytkowników jest do niej przypisanych` }
+    }
+    
+    const { error } = await supabase
+      .from('user_groups')
+      .delete()
+      .eq('id', groupId)
+    
+    if (error) {
+      console.error('Błąd usuwania grupy:', error)
+      return { error: error.message }
+    }
+    
+    await logAuditEvent(
+      user.id,
+      'group_deleted',
+      'user_group',
+      groupId,
+      { name: group.name }
+    )
+    
+    revalidatePath('/dashboard/users')
+    return { success: true, message: 'Grupa usunięta pomyślnie' }
+  } catch (error) {
+    console.error('Błąd usuwania grupy:', error)
     return { error: error instanceof Error ? error.message : 'Nieznany błąd' }
   }
 }

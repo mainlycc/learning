@@ -26,11 +26,12 @@ type UserResult = {
   user_id: string
   full_name: string | null
   email: string
-  function: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
+  function: string | null
   training_status: 'not_started' | 'in_progress' | 'completed' | 'paused'
   test_score: number | null
   test_passed: boolean | null
   test_completed_at: string | null
+  training_completed_at: string | null
 }
 
 export default async function ResultsPage({ searchParams }: PageProps) {
@@ -73,11 +74,13 @@ export default async function ResultsPage({ searchParams }: PageProps) {
   }
 
   let results: UserResult[] = []
-  let selectedTraining = null
+  let selectedTraining: { id: string; title: string; file_type: string } | null = null
 
   if (selectedTrainingId) {
+    const adminClient = createAdminClient()
+
     // Pobierz wybrane szkolenie
-    const { data: training } = await supabase
+    const { data: training } = await adminClient
       .from('trainings')
       .select('id, title, file_type')
       .eq('id', selectedTrainingId)
@@ -87,125 +90,72 @@ export default async function ResultsPage({ searchParams }: PageProps) {
       selectedTraining = training
 
       // Pobierz użytkowników z dostępem do kursu
-      // Używamy admin client aby mieć pewność że RLS nie blokuje dostępu
-      // Sprawdzamy:
-      // 1. Użytkowników przypisanych do szkolenia (training_users)
-      // 2. Użytkowników z postępem w szkoleniu (user_training_progress)
-      // 3. Użytkowników z wynikami testu (user_test_attempts)
-      let userIds: Set<string> = new Set()
-      
-      try {
-        const adminClient = createAdminClient()
-        
-        // 1. Pobierz użytkowników przypisanych do szkolenia
-        const { data: assignedUsers, error: assignedUsersError } = await adminClient
-          .from('training_users')
-          .select('user_id')
-          .eq('training_id', selectedTrainingId)
+      const userIds: Set<string> = new Set()
 
-        if (assignedUsersError) {
-          console.error('Błąd pobierania przypisanych użytkowników (adminClient):', assignedUsersError)
-          // Fallback: spróbuj użyć zwykłego klienta (może działać dla adminów)
-          const { data: fallbackUsers, error: fallbackError } = await supabase
-            .from('training_users')
-            .select('user_id')
-            .eq('training_id', selectedTrainingId)
-          
-          if (!fallbackError && fallbackUsers) {
-            console.log('Użyto fallback - znaleziono użytkowników:', fallbackUsers.length)
-            fallbackUsers.forEach(au => userIds.add(au.user_id))
-          }
-        } else if (assignedUsers) {
-          console.log('Pobrano przypisanych użytkowników (adminClient):', assignedUsers.length)
-          assignedUsers.forEach(au => userIds.add(au.user_id))
-        }
-        
-        // 2. Pobierz użytkowników z postępem w szkoleniu
-        const { data: progressUsers, error: progressError } = await adminClient
-          .from('user_training_progress')
+      // 1. Pobierz użytkowników przypisanych do szkolenia
+      const { data: assignedUsers } = await adminClient
+        .from('training_users')
+        .select('user_id')
+        .eq('training_id', selectedTrainingId)
+
+      if (assignedUsers) {
+        assignedUsers.forEach(au => userIds.add(au.user_id))
+      }
+
+      // 2. Pobierz użytkowników z postępem w szkoleniu
+      const { data: progressUsers } = await adminClient
+        .from('user_training_progress')
+        .select('user_id')
+        .eq('training_id', selectedTrainingId)
+
+      if (progressUsers) {
+        progressUsers.forEach(p => userIds.add(p.user_id))
+      }
+
+      // 3. Pobierz test dla tego szkolenia i użytkowników z wynikami testu
+      const { data: testData } = await adminClient
+        .from('tests')
+        .select('id')
+        .eq('training_id', selectedTrainingId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (testData) {
+        const { data: testUsers } = await adminClient
+          .from('user_test_attempts')
           .select('user_id')
-          .eq('training_id', selectedTrainingId)
-        
-        if (!progressError && progressUsers) {
-          console.log('Pobrano użytkowników z postępem:', progressUsers.length)
-          progressUsers.forEach(p => userIds.add(p.user_id))
-        } else if (progressError) {
-          console.error('Błąd pobierania użytkowników z postępem:', progressError)
-        }
-        
-        // 3. Pobierz test dla tego szkolenia i użytkowników z wynikami testu
-        const { data: testData } = await adminClient
-          .from('tests')
-          .select('id')
-          .eq('training_id', selectedTrainingId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        
-        if (testData) {
-          const { data: testUsers, error: testError } = await adminClient
-            .from('user_test_attempts')
-            .select('user_id')
-            .eq('test_id', testData.id)
-          
-          if (!testError && testUsers) {
-            console.log('Pobrano użytkowników z wynikami testu:', testUsers.length)
-            testUsers.forEach(t => userIds.add(t.user_id))
-          } else if (testError) {
-            console.error('Błąd pobierania użytkowników z wynikami testu:', testError)
-          }
-        }
-      } catch (error) {
-        console.error('Błąd podczas tworzenia adminClient lub pobierania użytkowników:', error)
-        // Fallback: spróbuj użyć zwykłego klienta
-        const { data: fallbackUsers, error: fallbackError } = await supabase
-          .from('training_users')
-          .select('user_id')
-          .eq('training_id', selectedTrainingId)
-        
-        if (!fallbackError && fallbackUsers) {
-          console.log('Użyto fallback - znaleziono użytkowników:', fallbackUsers.length)
-          fallbackUsers.forEach(au => userIds.add(au.user_id))
+          .eq('test_id', testData.id)
+
+        if (testUsers) {
+          testUsers.forEach(t => userIds.add(t.user_id))
         }
       }
 
-      // Jeśli nie znaleziono żadnych użytkowników, pobierz wszystkich użytkowników (kurs publiczny)
+      // Jeśli nie znaleziono żadnych użytkowników, pobierz wszystkich (kurs publiczny)
       if (userIds.size === 0) {
-        console.log('Brak użytkowników - traktuję kurs jako publiczny')
-        const { data: allUsers, error: allUsersError } = await supabase
+        const { data: allUsers } = await adminClient
           .from('profiles')
           .select('id')
-        
-        if (!allUsersError && allUsers) {
+
+        if (allUsers) {
           allUsers.forEach(u => userIds.add(u.id))
-          console.log('Pobrano wszystkich użytkowników (kurs publiczny):', userIds.size)
         }
       }
 
       const userIdsArray = Array.from(userIds)
       if (userIdsArray.length > 0) {
-        console.log('Szukam profili dla userIds:', userIdsArray.length)
-        
-        // Pobierz postęp szkoleń dla tych użytkowników
-        const { data: progress } = await supabase
+        // Pobierz postęp szkoleń dla tych użytkowników (adminClient!)
+        const { data: progress } = await adminClient
           .from('user_training_progress')
           .select('user_id, status, completed_at')
           .eq('training_id', selectedTrainingId)
           .in('user_id', userIdsArray)
 
-        // Pobierz test dla tego szkolenia
-        const { data: testData } = await supabase
-          .from('tests')
-          .select('id')
-          .eq('training_id', selectedTrainingId)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-
-        // Pobierz najlepsze wyniki testów dla każdego użytkownika
+        // Pobierz najlepsze wyniki testów dla każdego użytkownika (adminClient!)
         const testResults: Record<string, { score: number; passed: boolean; completed_at: string }> = {}
         if (testData) {
-          const { data: attempts } = await supabase
+          const { data: attempts } = await adminClient
             .from('user_test_attempts')
             .select('user_id, score, passed, completed_at')
             .eq('test_id', testData.id)
@@ -224,76 +174,16 @@ export default async function ResultsPage({ searchParams }: PageProps) {
           })
         }
 
-        // Pobierz dane użytkowników - użyj adminClient aby ominąć RLS
-        let profiles: Array<{ id: string; full_name: string | null; email: string; function: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null }> | null = null
-        
-        try {
-          const adminClient = createAdminClient()
-          const { data: adminProfiles, error: adminProfilesError } = await adminClient
-            .from('profiles')
-            .select('id, full_name, email, function')
-            .in('id', userIdsArray)
-          
-          profiles = adminProfiles
-          
-          if (adminProfilesError) {
-            console.error('Błąd pobierania profili użytkowników (adminClient):', adminProfilesError)
-            // Fallback: spróbuj użyć zwykłego klienta
-            const { data: fallbackProfiles, error: fallbackError } = await supabase
-              .from('profiles')
-              .select('id, full_name, email, function')
-              .in('id', userIdsArray)
-            
-            if (fallbackError) {
-              console.error('Błąd pobierania profili użytkowników (fallback):', fallbackError)
-            } else {
-              profiles = fallbackProfiles
-              console.log('Użyto fallback - pobrano profile:', fallbackProfiles?.length || 0)
-            }
-          } else {
-            console.log('Pobrano profile użytkowników (adminClient):', adminProfiles?.length || 0)
-          }
-        } catch (error) {
-          console.error('Błąd podczas tworzenia adminClient dla profili:', error)
-          // Fallback: użyj zwykłego klienta
-          const { data: fallbackProfiles, error: fallbackError } = await supabase
-            .from('profiles')
-            .select('id, full_name, email, function')
-            .in('id', userIdsArray)
-          
-          if (fallbackError) {
-            console.error('Błąd pobierania profili użytkowników (fallback):', fallbackError)
-          } else {
-            profiles = fallbackProfiles
-            console.log('Użyto fallback - pobrano profile:', fallbackProfiles?.length || 0)
-          }
-        }
-        
-        // Sprawdź czy wszystkie userIds mają odpowiadające profile
-        if (profiles && profiles.length < userIdsArray.length) {
-          const foundIds = new Set(profiles.map(p => p.id))
-          const missingIds = userIdsArray.filter(id => !foundIds.has(id))
-          console.warn('Nie znaleziono profili dla userIds:', missingIds)
-          
-          // Sprawdź czy te userIds istnieją w auth.users
-          try {
-            const adminClient = createAdminClient()
-            const { data: authUsers } = await adminClient.auth.admin.listUsers()
-            const existingAuthIds = new Set(authUsers?.users?.map(u => u.id) || [])
-            const missingInAuth = missingIds.filter(id => !existingAuthIds.has(id))
-            
-            if (missingInAuth.length > 0) {
-              console.warn('UserIds nie istnieją w auth.users:', missingInAuth)
-            }
-          } catch (error) {
-            console.error('Błąd sprawdzania auth.users:', error)
-          }
-        }
+        // Pobierz dane użytkowników (adminClient!)
+        const { data: profiles } = await adminClient
+          .from('profiles')
+          .select('id, full_name, email, function')
+          .in('id', userIdsArray)
 
         // Połącz dane
-        results = (profiles || []).map(profile => {
-          const userProgress = progress?.find(p => p.user_id === profile.id)
-          const testResult = testResults[profile.id]
+        results = (profiles || []).map(p => {
+          const userProgress = progress?.find(pr => pr.user_id === p.id)
+          const testResult = testResults[p.id]
 
           let trainingStatus: 'not_started' | 'in_progress' | 'completed' | 'paused' = 'not_started'
           if (userProgress) {
@@ -310,14 +200,15 @@ export default async function ResultsPage({ searchParams }: PageProps) {
           const shouldShowTestResult = trainingStatus !== 'not_started'
 
           return {
-            user_id: profile.id,
-            full_name: profile.full_name,
-            email: profile.email,
-            function: profile.function,
+            user_id: p.id,
+            full_name: p.full_name,
+            email: p.email,
+            function: p.function,
             training_status: trainingStatus,
             test_score: shouldShowTestResult ? (testResult?.score ?? null) : null,
             test_passed: shouldShowTestResult ? (testResult?.passed ?? null) : null,
             test_completed_at: shouldShowTestResult ? (testResult?.completed_at ?? null) : null,
+            training_completed_at: userProgress?.completed_at ?? null,
           }
         })
 
@@ -352,28 +243,17 @@ export default async function ResultsPage({ searchParams }: PageProps) {
     return <span className={`font-medium ${colorClass}`}>{score}%</span>
   }
 
-  const getFunctionLabel = (
-    fn: 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
-  ) => {
+  const getFunctionLabel = (fn: string | null) => {
     switch (fn) {
-      case 'ochrona':
-        return 'Ochrona'
-      case 'pilot':
-        return 'Pilot'
-      case 'steward':
-        return 'Steward'
-      case 'instruktor':
-        return 'Instruktor'
-      case 'uczestnik':
-        return 'Uczestnik'
-      case 'gosc':
-        return 'Gość'
-      case 'pracownik':
-        return 'Pracownik'
-      case 'kontraktor':
-        return 'Kontraktor'
-      default:
-        return 'Brak'
+      case 'ochrona': return 'Ochrona'
+      case 'pilot': return 'Pilot'
+      case 'steward': return 'Steward'
+      case 'instruktor': return 'Instruktor'
+      case 'uczestnik': return 'Uczestnik'
+      case 'gosc': return 'Gość'
+      case 'pracownik': return 'Pracownik'
+      case 'kontraktor': return 'Kontraktor'
+      default: return fn || 'Brak'
     }
   }
 
@@ -436,6 +316,7 @@ export default async function ResultsPage({ searchParams }: PageProps) {
                       <TableHead>Użytkownik</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Funkcja</TableHead>
+                      <TableHead>Data szkolenia</TableHead>
                       <TableHead>Status szkolenia</TableHead>
                       <TableHead>Wynik testu</TableHead>
                       <TableHead>Data testu</TableHead>
@@ -449,6 +330,11 @@ export default async function ResultsPage({ searchParams }: PageProps) {
                         </TableCell>
                         <TableCell>{result.email}</TableCell>
                         <TableCell>{getFunctionLabel(result.function)}</TableCell>
+                        <TableCell>
+                          {result.training_completed_at
+                            ? new Date(result.training_completed_at).toLocaleDateString('pl-PL')
+                            : '-'}
+                        </TableCell>
                         <TableCell>{getStatusBadge(result.training_status)}</TableCell>
                         <TableCell>
                           {getTestResultBadge(result.test_score, result.test_passed)}
@@ -474,4 +360,3 @@ export default async function ResultsPage({ searchParams }: PageProps) {
     </div>
   )
 }
-

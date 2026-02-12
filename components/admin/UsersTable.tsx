@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EditUserDialog } from './EditUserDialog'
 import { DeleteUsersDialog } from './DeleteUsersDialog'
+import { GroupsManager } from './GroupsManager'
 import { Trash2, Search } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useRouter } from 'next/navigation'
@@ -26,26 +27,28 @@ interface User {
   email: string
   full_name: string | null
   role: 'user' | 'admin' | 'super_admin'
-  function:
-    | 'ochrona'
-    | 'pilot'
-    | 'steward'
-    | 'instruktor'
-    | 'uczestnik'
-    | 'gosc'
-    | 'pracownik'
-    | 'kontraktor'
-    | null
+  function: string | null
   created_at: string
   email_confirmed_at: string | null
+}
+
+interface UserGroup {
+  id: string
+  name: string
+  display_name: string
+  description: string | null
+  created_at: string
+  created_by: string | null
 }
 
 interface UsersTableProps {
   users: User[]
   currentUserId: string
+  groups?: UserGroup[]
+  isSuperAdmin?: boolean
 }
 
-export function UsersTable({ users, currentUserId }: UsersTableProps) {
+export function UsersTable({ users, currentUserId, groups = [], isSuperAdmin = false }: UsersTableProps) {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'admin' | 'super_admin'>('all')
@@ -119,38 +122,10 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
     }
   }
 
-  const getFunctionLabel = (
-    fn:
-      | 'ochrona'
-      | 'pilot'
-      | 'steward'
-      | 'instruktor'
-      | 'uczestnik'
-      | 'gosc'
-      | 'pracownik'
-      | 'kontraktor'
-      | null
-  ) => {
-    switch (fn) {
-      case 'ochrona':
-        return 'Ochrona'
-      case 'pilot':
-        return 'Pilot'
-      case 'steward':
-        return 'Steward'
-      case 'instruktor':
-        return 'Instruktor'
-      case 'uczestnik':
-        return 'Uczestnik'
-      case 'gosc':
-        return 'Gość'
-      case 'pracownik':
-        return 'Pracownik'
-      case 'kontraktor':
-        return 'Kontraktor'
-      default:
-        return 'Brak'
-    }
+  const getFunctionLabel = (fn: string | null) => {
+    if (!fn) return 'Brak'
+    const group = groups.find(g => g.name === fn)
+    return group ? group.display_name : fn
   }
 
   if (users.length === 0) {
@@ -163,26 +138,24 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
 
   return (
     <div className="space-y-4">
-      <div className="h-[60px] flex items-center">
-        {selectedIds.size > 0 && (
-          <div className="flex items-center justify-between p-4 bg-muted rounded-md w-full">
-            <span className="text-sm font-medium">
-              Zaznaczono: {selectedIds.size} {selectedIds.size === 1 ? 'użytkownika' : 'użytkowników'}
-            </span>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleDeleteSelected}
-              disabled={isDeleting}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              {isDeleting ? 'Usuwanie...' : `Usuń zaznaczonych (${selectedIds.size})`}
-            </Button>
-          </div>
-        )}
-      </div>
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between p-4 bg-muted rounded-md">
+          <span className="text-sm font-medium">
+            Zaznaczono: {selectedIds.size} {selectedIds.size === 1 ? 'użytkownika' : 'użytkowników'}
+          </span>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleDeleteSelected}
+            disabled={isDeleting}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            {isDeleting ? 'Usuwanie...' : `Usuń zaznaczonych (${selectedIds.size})`}
+          </Button>
+        </div>
+      )}
 
-      {/* Filtry */}
+      {/* Filtry + zarządzanie grupami */}
       <div className="flex gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -204,6 +177,7 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
             <SelectItem value="super_admin">Super Admin</SelectItem>
           </SelectContent>
         </Select>
+        <GroupsManager groups={groups} isSuperAdmin={isSuperAdmin} />
       </div>
 
       {/* Tabela */}
@@ -221,7 +195,7 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
               <TableHead>Email</TableHead>
               <TableHead>Imię i nazwisko</TableHead>
               <TableHead>Rola</TableHead>
-              <TableHead>Funkcja</TableHead>
+              <TableHead>Grupy</TableHead>
               <TableHead>Data rejestracji</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
@@ -291,6 +265,7 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
         return userToEdit ? (
           <EditUserDialog 
             user={userToEdit} 
+            groups={groups}
             open={true}
             onOpenChange={(open) => {
               if (!open) {
