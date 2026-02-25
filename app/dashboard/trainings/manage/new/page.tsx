@@ -65,7 +65,8 @@ export default async function NewTrainingPage({
   let assignedUserIds: string[] = []
   
   if (resolvedSearchParams.editId) {
-    const { data: training } = await supabase
+    // Używamy adminClient żeby ominąć RLS (unikamy stack depth limit exceeded)
+    const { data: training } = await adminClient
       .from('trainings')
       .select('*')
       .eq('id', resolvedSearchParams.editId)
@@ -82,8 +83,8 @@ export default async function NewTrainingPage({
         file_path: training.file_path,
       }
 
-      // Pobierz przypisanych użytkowników
-      const { data: trainingUsers } = await supabase
+      // Pobierz przypisanych użytkowników (adminClient omija RLS)
+      const { data: trainingUsers } = await adminClient
         .from('training_users')
         .select('user_id')
         .eq('training_id', training.id)

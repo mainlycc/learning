@@ -94,12 +94,6 @@ export function AppSidebar({ user }: SidebarProps) {
       roles: ['super_admin', 'admin']
     },
     {
-      name: 'Wyniki szkoleń',
-      href: '/dashboard/trainings/manage/wyniki',
-      icon: TrendingUp,
-      roles: ['super_admin', 'admin']
-    },
-    {
       name: 'Użytkownicy',
       href: '/dashboard/users',
       icon: Users,

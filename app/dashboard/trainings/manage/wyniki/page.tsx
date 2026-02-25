@@ -2,7 +2,6 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   Table,
@@ -12,11 +11,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ArrowLeft, BarChart3 } from 'lucide-react'
-import Link from 'next/link'
+import { BarChart3 } from 'lucide-react'
 import { redirect } from 'next/navigation'
 import { TrainingSelect } from './training-select'
 import { ExportPdfWrapper } from './export-pdf-wrapper'
+import { ManageTabsNav } from '../manage-tabs-nav'
 
 interface PageProps {
   searchParams: Promise<{ trainingId?: string }>
@@ -259,22 +258,16 @@ export default async function ResultsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/dashboard/trainings/manage">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Powrót do zarządzania
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <BarChart3 className="h-6 w-6" />
-            Wyniki szkoleń
-          </h1>
-          <p className="text-muted-foreground">
-            Przeglądaj postępy użytkowników i wyniki testów
-          </p>
-        </div>
+      <ManageTabsNav />
+
+      <div>
+        <h1 className="text-2xl font-semibold flex items-center gap-2">
+          <BarChart3 className="h-6 w-6" />
+          Wyniki szkoleń
+        </h1>
+        <p className="text-muted-foreground">
+          Przeglądaj postępy użytkowników i wyniki testów
+        </p>
       </div>
 
       <Card>

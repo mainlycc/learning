@@ -88,14 +88,57 @@ export default async function TaskPage() {
     )
   }
 
-  // Przygotuj dane szkoleń do przekazania
-  const trainingsData = availableTrainings.map(training => ({
-    id: training.id,
-    title: training.title,
-    description: training.description,
-    file_type: training.file_type as 'PDF' | 'PPTX' | 'PNG',
-    file_path: training.file_path
-  }))
+  // Jeśli są dostępne szkolenia, pobierz ich pliki z training_files,
+  // żeby nie polegać na legacy kolumnie trainings.file_path
+  let trainingsData: {
+    id: string
+    title: string
+    description: string | null
+    file_type: 'PDF' | 'PPTX' | 'PNG'
+    file_path: string
+  }[] = []
+
+  if (availableTrainings && availableTrainings.length > 0) {
+    const trainingIds = availableTrainings.map((t) => t.id)
+
+    const { data: trainingFiles } = await supabase
+      .from('training_files')
+      .select('training_id, file_path, file_type, created_at')
+      .in('training_id', trainingIds)
+      .order('created_at', { ascending: true })
+
+    const firstFileByTraining = new Map<
+      string,
+      { file_path: string; file_type: 'PDF' | 'PPTX' | 'PNG' }
+    >()
+
+    if (trainingFiles) {
+      for (const file of trainingFiles) {
+        if (!firstFileByTraining.has(file.training_id)) {
+          firstFileByTraining.set(file.training_id, {
+            file_path: file.file_path,
+            file_type: file.file_type as 'PDF' | 'PPTX' | 'PNG',
+          })
+        }
+      }
+    }
+
+    // Przygotuj dane szkoleń do przekazania
+    trainingsData = availableTrainings.map((training) => {
+      const primaryFile = firstFileByTraining.get(training.id)
+
+      return {
+        id: training.id,
+        title: training.title,
+        description: training.description,
+        file_type: (primaryFile?.file_type ||
+          training.file_type ||
+          'PDF') as 'PDF' | 'PPTX' | 'PNG',
+        // Preferuj ścieżkę z training_files, a legacy trainings.file_path traktuj jako fallback
+        file_path: primaryFile?.file_path || training.file_path || '',
+      }
+    })
+  }
 
   return (
     <TaskViewer trainings={trainingsData} />

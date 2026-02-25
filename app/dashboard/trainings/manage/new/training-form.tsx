@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { TrainingFileUpload } from '@/components/training-file-upload'
-import { createTraining, updateTrainingWithFile } from './actions'
+import { createTraining, updateTrainingWithFile, deleteTrainingFile, getSignedUploadUrl, registerUploadedFile, activateTraining } from './actions'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -46,17 +46,6 @@ function getFileType(fileName: string): 'PDF' | 'PPTX' | 'PNG' {
   if (name.endsWith('.pptx')) return 'PPTX'
   if (name.endsWith('.png')) return 'PNG'
   return 'PDF'
-}
-
-function sanitizeFileName(fileName: string): string {
-  const extension = fileName.substring(fileName.lastIndexOf('.'))
-  const nameWithoutExt = fileName.substring(0, fileName.lastIndexOf('.'))
-  const sanitized = nameWithoutExt
-    .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .replace(/_{2,}/g, '_')
-    .replace(/^_+|_+$/g, '')
-  const finalName = sanitized || 'file'
-  return `${finalName}${extension}`
 }
 
 type UserFunction = 'ochrona' | 'pilot' | 'steward' | 'instruktor' | 'uczestnik' | 'gosc' | 'pracownik' | 'kontraktor' | null
@@ -376,42 +365,40 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
           return
         }
 
-        // Wgraj nowe pliki
-          const user = (await supabase.auth.getUser()).data.user
-          if (!user) {
-            setError('Brak sesji użytkownika')
-            return
-          }
-
-        // Wgraj wszystkie nowe pliki
+        // Wgraj nowe pliki – upload bezpośrednio do Supabase (omija limit body Next.js)
         for (const file of files) {
-          const sanitizedFileName = sanitizeFileName(file.name)
-          const fileType = getFileType(file.name)
-          const filePath = `${user.id}/${trainingData.id}/${Date.now()}-${sanitizedFileName}`
-          
-          const { error: uploadError } = await supabase.storage
-            .from('trainings')
-            .upload(filePath, file, { upsert: false })
-
-          if (uploadError) {
-            setError(uploadError.message || `Błąd uploadu pliku ${file.name}`)
+          // 1. Pobierz signed upload URL z server action
+          const urlResult = await getSignedUploadUrl(trainingData.id, file.name, file.size)
+          if (!urlResult.success || !urlResult.signedUrl || !urlResult.filePath || !urlResult.token) {
+            setError(urlResult.error || `Błąd przygotowania uploadu pliku ${file.name}`)
             return
           }
 
-          // Zapisz plik w tabeli training_files
-          const { error: insertError } = await supabase
-            .from('training_files')
-            .insert({
-              training_id: trainingData.id,
-              file_path: filePath,
-              file_type: fileType,
-              file_name: file.name,
-              file_size: file.size,
-              uploaded_by: user.id
+          // 2. Upload bezpośrednio do Supabase Storage przez fetch (omija Next.js i SDK)
+          try {
+            const uploadRes = await fetch(urlResult.signedUrl, {
+              method: 'PUT',
+              body: file,
+              headers: {
+                'Content-Type': file.type || 'application/octet-stream',
+              },
             })
 
-          if (insertError) {
-            setError(insertError.message || `Błąd zapisu pliku ${file.name}`)
+            if (!uploadRes.ok) {
+              const errText = await uploadRes.text().catch(() => uploadRes.statusText)
+              setError(`Błąd uploadu pliku ${file.name}: ${errText}`)
+              return
+            }
+          } catch (uploadErr) {
+            console.error('Błąd uploadu do Supabase:', uploadErr)
+            setError(`Błąd uploadu pliku ${file.name}`)
+            return
+          }
+
+          // 3. Zarejestruj plik w bazie przez server action
+          const regResult = await registerUploadedFile(trainingData.id, urlResult.filePath, file.name, file.size)
+          if (!regResult.success) {
+            setError(regResult.error || `Błąd zapisu pliku ${file.name}`)
             return
           }
         }
@@ -437,58 +424,48 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
           return
         }
 
-        // Wgraj wszystkie pliki
-        const user = (await supabase.auth.getUser()).data.user
-        if (!user) {
-          setError('Brak sesji użytkownika')
-          return
-        }
-
-        // Wgraj wszystkie pliki do storage i zapisz w training_files
+        // Wgraj wszystkie pliki – upload bezpośrednio do Supabase (omija limit body Next.js)
         for (const file of files) {
-          const sanitizedFileName = sanitizeFileName(file.name)
-          const fileType = getFileType(file.name)
-        const filePath = `${user.id}/${result.trainingId}/${Date.now()}-${sanitizedFileName}`
-        
-        const { error: uploadError } = await supabase.storage
-          .from('trainings')
-            .upload(filePath, file, { upsert: false })
+          // 1. Pobierz signed upload URL z server action
+          const urlResult = await getSignedUploadUrl(result.trainingId, file.name, file.size)
+          if (!urlResult.success || !urlResult.signedUrl || !urlResult.filePath || !urlResult.token) {
+            setError(urlResult.error || `Błąd przygotowania uploadu pliku ${file.name}`)
+            return
+          }
 
-        if (uploadError) {
-          // Usuń szkolenie jeśli upload się nie powiódł
-          await supabase.from('trainings').delete().eq('id', result.trainingId)
-            setError(uploadError.message || `Błąd uploadu pliku ${file.name}`)
-          return
-        }
-
-          // Zapisz plik w tabeli training_files
-          const { error: insertError } = await supabase
-            .from('training_files')
-            .insert({
-              training_id: result.trainingId,
-              file_path: filePath,
-              file_type: fileType,
-              file_name: file.name,
-              file_size: file.size,
-              uploaded_by: user.id
+          // 2. Upload bezpośrednio do Supabase Storage przez fetch (omija Next.js i SDK)
+          try {
+            const uploadRes = await fetch(urlResult.signedUrl, {
+              method: 'PUT',
+              body: file,
+              headers: {
+                'Content-Type': file.type || 'application/octet-stream',
+              },
             })
 
-          if (insertError) {
-            // Usuń szkolenie jeśli zapis się nie powiódł
-            await supabase.from('trainings').delete().eq('id', result.trainingId)
-            setError(insertError.message || `Błąd zapisu pliku ${file.name}`)
-          return
+            if (!uploadRes.ok) {
+              const errText = await uploadRes.text().catch(() => uploadRes.statusText)
+              setError(`Błąd uploadu pliku ${file.name}: ${errText}`)
+              return
+            }
+          } catch (uploadErr) {
+            console.error('Błąd uploadu do Supabase:', uploadErr)
+            setError(`Błąd uploadu pliku ${file.name}`)
+            return
+          }
+
+          // 3. Zarejestruj plik w bazie przez server action
+          const regResult = await registerUploadedFile(result.trainingId, urlResult.filePath, file.name, file.size)
+          if (!regResult.success) {
+            setError(regResult.error || `Błąd zapisu pliku ${file.name}`)
+            return
           }
         }
 
-        // Aktywuj szkolenie po pomyślnym wgraniu wszystkich plików
-        const { error: activateError } = await supabase
-          .from('trainings')
-          .update({ is_active: true })
-          .eq('id', result.trainingId)
-
-        if (activateError) {
-          console.error('Błąd aktywacji szkolenia:', activateError)
+        // Aktywuj szkolenie po pomyślnym wgraniu wszystkich plików (server action, omija RLS)
+        const activateResult = await activateTraining(result.trainingId)
+        if (!activateResult.success) {
+          console.error('Błąd aktywacji szkolenia:', activateResult.error)
           // Nie przerywamy procesu - szkolenie zostało utworzone, tylko nie jest aktywne
         }
 
@@ -504,32 +481,23 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
     }
   }
 
-  // Usuń istniejący plik
+  // Usuń istniejący plik – przez server action z admin client (omija RLS)
   const handleDeleteExistingFile = async (fileId: string, filePath: string) => {
     if (!confirm('Czy na pewno chcesz usunąć ten plik?')) return
 
+    if (!trainingData?.id) return
+
     try {
-      // Usuń plik z storage
-      const { error: storageError } = await supabase.storage
-        .from('trainings')
-        .remove([filePath])
+      const result = await deleteTrainingFile(
+        fileId,
+        filePath,
+        trainingData.id,
+        fileId.startsWith('legacy-')
+      )
 
-      if (storageError) {
-        console.error('Błąd usuwania pliku z storage:', storageError)
-        // Kontynuuj nawet jeśli usunięcie z storage się nie powiodło
-      }
-
-      // Usuń rekord z bazy danych tylko jeśli to nie jest legacy plik
-      if (!fileId.startsWith('legacy-')) {
-        const { error: dbError } = await supabase
-          .from('training_files')
-          .delete()
-          .eq('id', fileId)
-
-        if (dbError) {
-          setError(dbError.message || 'Błąd usuwania pliku z bazy danych')
-          return
-        }
+      if (!result.success) {
+        setError(result.error || 'Błąd usuwania pliku')
+        return
       }
 
       // Usuń plik z listy
@@ -690,7 +658,7 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
                     {existingFiles.map((file) => (
                       <Card key={file.id} className="p-3">
                         <CardContent className="p-0">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{file.file_name}</p>
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -708,6 +676,16 @@ export function TrainingForm({ initialUsers = [], trainingData, assignedUserIds 
                                 )}
                               </div>
                             </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive"
+                              onClick={() => handleDeleteExistingFile(file.id, file.file_path)}
+                              title="Usuń plik"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>

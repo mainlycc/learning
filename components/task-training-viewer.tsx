@@ -62,7 +62,17 @@ export function TaskTrainingViewer({
         .createSignedUrl(filePath, 60 * 60) // 1h
 
       if (urlError || !data?.signedUrl) {
-        throw new Error(urlError?.message || 'Nie udało się wygenerować adresu podglądu.')
+        // Przyjazny komunikat, gdy obiekt w storage nie istnieje lub nie da się wygenerować URL
+        let message = urlError?.message || 'Nie udało się wygenerować adresu podglądu.'
+        if (message.toLowerCase().includes('object not found')) {
+          message = 'Plik szkolenia nie został znaleziony (mógł zostać usunięty lub jest niedostępny).'
+        }
+
+        setSignedUrlExpiresAt(null)
+        setSignedUrl(null)
+        setStatus('error')
+        setError(message)
+        return
       }
 
       let finalUrl = data.signedUrl
@@ -88,7 +98,8 @@ export function TaskTrainingViewer({
       setSignedUrlExpiresAt(null)
       setSignedUrl(null)
       const fileTypeName = fileType === 'PDF' ? 'PDF' : fileType === 'PNG' ? 'PNG' : 'PPTX'
-      setError(err instanceof Error ? err.message : `Nieznany błąd podglądu ${fileTypeName}.`)
+      const message = err instanceof Error ? err.message : `Nieznany błąd podglądu ${fileTypeName}.`
+      setError(message)
       setStatus('error')
     }
   }, [filePath, fileType, supabase, extractPptxSlideCount])

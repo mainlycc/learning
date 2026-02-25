@@ -1,10 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { TrainingsTable } from '@/components/admin/TrainingsTable'
 import { Plus } from 'lucide-react'
 import Link from 'next/link'
+import { ManageTabsNav } from './manage-tabs-nav'
 
 
 export default async function TrainingsManagePage() {
@@ -32,15 +34,18 @@ export default async function TrainingsManagePage() {
     )
   }
 
+  // Admin client – omija RLS (unikamy stack depth limit exceeded)
+  const adminClient = createAdminClient()
+
   // Lista istniejących szkoleń (pełne dane do edycji)
-  const { data: trainings } = await supabase
+  const { data: trainings } = await adminClient
     .from('trainings')
     .select('id, title, description, file_type, duration_minutes, is_active, created_at')
     .order('created_at', { ascending: false })
 
   // Pobierz informacje o testach dla każdego szkolenia
   const trainingIds = trainings?.map(t => t.id) || []
-  const { data: tests } = await supabase
+  const { data: tests } = await adminClient
     .from('tests')
     .select('id, training_id')
     .in('training_id', trainingIds)
@@ -59,7 +64,9 @@ export default async function TrainingsManagePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <ManageTabsNav />
+
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Zarządzanie szkoleniami</h1>
           <p className="text-muted-foreground">Dodawaj, edytuj i zarządzaj szkoleniami oraz testami.</p>

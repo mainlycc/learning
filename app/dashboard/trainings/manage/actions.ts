@@ -1,14 +1,22 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 
-export async function updateTraining(formData: FormData) {
+// Helper: sprawdź czy zalogowany user jest adminem
+async function requireAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Brak uprawnień'))
   }
+  return user
+}
+
+export async function updateTraining(formData: FormData) {
+  await requireAdmin()
+  const adminClient = createAdminClient()
 
   const id = String(formData.get('id') || '').trim()
   const title = String(formData.get('title') || '').trim()
@@ -21,7 +29,7 @@ export async function updateTraining(formData: FormData) {
     redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Niepoprawne dane edycji'))
   }
 
-  const { error } = await supabase
+  const { error } = await adminClient
     .from('trainings')
     .update({
       title,
@@ -40,18 +48,52 @@ export async function updateTraining(formData: FormData) {
 }
 
 export async function deleteTraining(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Brak uprawnień'))
-  }
+  await requireAdmin()
+  const adminClient = createAdminClient()
 
   const id = String(formData.get('id') || '').trim()
   if (!id) {
     redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Brak identyfikatora szkolenia'))
   }
 
-  const { error } = await supabase
+  // Najpierw usuń powiązane pliki z storage
+  const { data: trainingFiles } = await adminClient
+    .from('training_files')
+    .select('file_path')
+    .eq('training_id', id)
+
+  if (trainingFiles && trainingFiles.length > 0) {
+    const filePaths = trainingFiles.map(f => f.file_path).filter(Boolean)
+    if (filePaths.length > 0) {
+      await adminClient.storage.from('trainings').remove(filePaths)
+    }
+  }
+
+  // Usuń legacy plik z storage jeśli istnieje
+  const { data: training } = await adminClient
+    .from('trainings')
+    .select('file_path')
+    .eq('id', id)
+    .single()
+
+  if (training?.file_path) {
+    await adminClient.storage.from('trainings').remove([training.file_path])
+  }
+
+  // Usuń rekordy z training_files
+  await adminClient
+    .from('training_files')
+    .delete()
+    .eq('training_id', id)
+
+  // Usuń przypisania użytkowników
+  await adminClient
+    .from('training_users')
+    .delete()
+    .eq('training_id', id)
+
+  // Usuń samo szkolenie
+  const { error } = await adminClient
     .from('trainings')
     .delete()
     .eq('id', id)
@@ -64,11 +106,8 @@ export async function deleteTraining(formData: FormData) {
 }
 
 export async function toggleTrainingStatus(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Brak uprawnień'))
-  }
+  await requireAdmin()
+  const adminClient = createAdminClient()
 
   const id = String(formData.get('id') || '').trim()
   const currentStatus = String(formData.get('current_status') || 'false') === 'true'
@@ -77,7 +116,7 @@ export async function toggleTrainingStatus(formData: FormData) {
     redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Brak identyfikatora szkolenia'))
   }
 
-  const { error } = await supabase
+  const { error } = await adminClient
     .from('trainings')
     .update({ is_active: !currentStatus })
     .eq('id', id)
@@ -92,11 +131,8 @@ export async function toggleTrainingStatus(formData: FormData) {
 }
 
 export async function deleteTrainings(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Brak uprawnień'))
-  }
+  await requireAdmin()
+  const adminClient = createAdminClient()
 
   const ids = formData.getAll('ids[]').map(id => String(id).trim()).filter(Boolean)
   
@@ -104,7 +140,45 @@ export async function deleteTrainings(formData: FormData) {
     redirect('/dashboard/trainings/manage?toast=' + encodeURIComponent('Nie wybrano szkoleń do usunięcia'))
   }
 
-  const { error } = await supabase
+  // Dla każdego szkolenia - usuń pliki z storage
+  for (const id of ids) {
+    const { data: trainingFiles } = await adminClient
+      .from('training_files')
+      .select('file_path')
+      .eq('training_id', id)
+
+    if (trainingFiles && trainingFiles.length > 0) {
+      const filePaths = trainingFiles.map(f => f.file_path).filter(Boolean)
+      if (filePaths.length > 0) {
+        await adminClient.storage.from('trainings').remove(filePaths)
+      }
+    }
+
+    const { data: training } = await adminClient
+      .from('trainings')
+      .select('file_path')
+      .eq('id', id)
+      .single()
+
+    if (training?.file_path) {
+      await adminClient.storage.from('trainings').remove([training.file_path])
+    }
+  }
+
+  // Usuń rekordy z training_files
+  await adminClient
+    .from('training_files')
+    .delete()
+    .in('training_id', ids)
+
+  // Usuń przypisania użytkowników
+  await adminClient
+    .from('training_users')
+    .delete()
+    .in('training_id', ids)
+
+  // Usuń szkolenia
+  const { error } = await adminClient
     .from('trainings')
     .delete()
     .in('id', ids)
@@ -117,5 +191,3 @@ export async function deleteTrainings(formData: FormData) {
     `Usunięto ${ids.length} ${ids.length === 1 ? 'szkolenie' : 'szkoleń'}.`
   ))
 }
-
-
